@@ -1,0 +1,7 @@
+﻿~/sdn-iot-ids/
+├── topology.py          ← Mininet topology (your diagram exactly)
+├── ryu_controller.py    ← Ryu app: L2 + mirror + flow enforcer
+├── ids_api.py           ← Flask API wrapping best_model_xgb.pkl
+├── traffic_capture.py   ← tshark → 33 features → POST to ids_api
+├── normal_traffic.py    ← paho publisher/subscriber for h1-h8
+└── run_all.sh           ← master launch script
