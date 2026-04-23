@@ -1,0 +1,72 @@
+{
+  "summary": {
+    "accuracy": 88.2,
+    "macro_f1": 0.8473,
+    "macro_precision": 0.853,
+    "macro_recall": 0.8457,
+    "macro_fpr": 0.0242
+  },
+  "per_class": {
+    "normal": {
+      "TP": 180,
+      "FP": 11,
+      "FN": 11,
+      "TN": 298,
+      "Precision": 0.9424,
+      "Recall": 0.9424,
+      "F1": 0.9424,
+      "FPR": 0.0356
+    },
+    "flood": {
+      "TP": 74,
+      "FP": 8,
+      "FN": 8,
+      "TN": 410,
+      "Precision": 0.9024,
+      "Recall": 0.9024,
+      "F1": 0.9024,
+      "FPR": 0.0191
+    },
+    "c2_malware": {
+      "TP": 62,
+      "FP": 8,
+      "FN": 11,
+      "TN": 419,
+      "Precision": 0.8857,
+      "Recall": 0.8493,
+      "F1": 0.8671,
+      "FPR": 0.0187
+    },
+    "brute_force": {
+      "TP": 59,
+      "FP": 15,
+      "FN": 6,
+      "TN": 420,
+      "Precision": 0.7973,
+      "Recall": 0.9077,
+      "F1": 0.8489,
+      "FPR": 0.0345
+    },
+    "port_scan": {
+      "TP": 39,
+      "FP": 10,
+      "FN": 8,
+      "TN": 443,
+      "Precision": 0.7959,
+      "Recall": 0.8298,
+      "F1": 0.8125,
+      "FPR": 0.0221
+    },
+    "slow_drip": {
+      "TP": 27,
+      "FP": 7,
+      "FN": 15,
+      "TN": 451,
+      "Precision": 0.7941,
+      "Recall": 0.6429,
+      "F1": 0.7105,
+      "FPR": 0.0153
+    }
+  },
+  "timestamp": "2026-04-22T19:43:09"
+}
