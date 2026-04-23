@@ -1,0 +1,41 @@
+{
+  "attack": "port_scan",
+  "subnet": "10.0.0",
+  "duration_s": 0.23589539527893066,
+  "hosts": {
+    "10.0.0.4": {
+      "host": "10.0.0.4",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-23T09:56:19.474952"
+    },
+    "10.0.0.1": {
+      "host": "10.0.0.1",
+      "is_alive": true,
+      "open_ports": {
+        "1883": "MQTT"
+      },
+      "scan_time": "2026-04-23T09:56:19.617898"
+    },
+    "10.0.0.2": {
+      "host": "10.0.0.2",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-23T09:56:19.708073"
+    },
+    "10.0.0.3": {
+      "host": "10.0.0.3",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-23T09:56:19.708327"
+    },
+    "10.0.0.5": {
+      "host": "10.0.0.5",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-23T09:56:19.708494"
+    }
+  },
+  "mqtt_recon": {},
+  "timestamp": "2026-04-23T09:56:19.709770"
+}
