@@ -1,0 +1,71 @@
+{
+  "attack": "port_scan",
+  "subnet": "10.0.0",
+  "duration_s": 3.005406618118286,
+  "hosts": {
+    "10.0.0.1": {
+      "host": "10.0.0.1",
+      "is_alive": true,
+      "open_ports": {
+        "443": "HTTPS"
+      },
+      "scan_time": "2026-04-22T19:45:15.356133"
+    },
+    "10.0.0.6": {
+      "host": "10.0.0.6",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-22T19:45:18.029969"
+    },
+    "10.0.0.9": {
+      "host": "10.0.0.9",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-22T19:45:18.030084"
+    },
+    "10.0.0.2": {
+      "host": "10.0.0.2",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-22T19:45:18.030396"
+    },
+    "10.0.0.7": {
+      "host": "10.0.0.7",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-22T19:45:18.030458"
+    },
+    "10.0.0.5": {
+      "host": "10.0.0.5",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-22T19:45:18.030484"
+    },
+    "10.0.0.4": {
+      "host": "10.0.0.4",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-22T19:45:18.030536"
+    },
+    "10.0.0.3": {
+      "host": "10.0.0.3",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-22T19:45:18.030556"
+    },
+    "10.0.0.10": {
+      "host": "10.0.0.10",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-22T19:45:18.030811"
+    },
+    "10.0.0.8": {
+      "host": "10.0.0.8",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-22T19:45:18.030858"
+    }
+  },
+  "mqtt_recon": {},
+  "timestamp": "2026-04-22T19:45:18.031174"
+}
