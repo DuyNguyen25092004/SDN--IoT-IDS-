@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-# SDN--IoT-IDS-
-=======
 # Người 3 — Attack Simulation & Evaluation
 ## Hướng dẫn sử dụng toàn bộ scripts
 
@@ -135,4 +132,5 @@ timestamp,true_label,predicted_label,confidence_score
 - **Người 1 (Network)**: Cần bật port mirroring trên OVS để capture traffic từ h4
 - **Người 2 (ML)**: Scripts export traffic characteristics, đặt biệt `attack5` log entropy để làm training feature
 - Evaluation script đọc CSV từ ML model của Người 2, không cần sửa code
->>>>>>> part3
+
+# SDN--IoT-IDS-

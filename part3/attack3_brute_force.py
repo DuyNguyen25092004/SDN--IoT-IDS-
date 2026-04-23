@@ -5,7 +5,7 @@ Thử nhiều username/password liên tục đến broker.
 Ghi lại số lần CONNACK refused để phân tích detection.
 
 Chạy:
-    python3 attack3_brute_force.py --host 10.0.0.1 --port 1883 --delay 0.1
+    python3 attack3_brute_force.py --host 10.0.0.10 --port 1883 --delay 0.1
 """
 
 import paho.mqtt.client as mqtt
