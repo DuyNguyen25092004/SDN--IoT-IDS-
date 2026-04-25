@@ -1,2 +1,2 @@
 attack_type,target,total_sent,total_error,duration_s,rate_msg_s,timestamp
-mqtt_flood,10.0.0.10:1883,0,0,5.01,0.0,2026-04-25T18:09:47.014669
+mqtt_flood,10.0.0.10:1883,10000,0,0.33,30308.4,2026-04-25T19:58:43.061567

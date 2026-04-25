@@ -83,31 +83,28 @@ mininet> h8 python3 normal_traffic.py subscriber --broker 10.0.0.10 --id h8 --to
 
 #### Attack 1: MQTT Flood
 ```
-mininet> h4 python3 attack1_mqtt_flood.py --broker 10.0.0.1 --threads 5 --rate 500 --duration 30
+hattacker python3 attack1_mqtt_flood.py --host 10.0.0.10
 ```
 
 #### Attack 2: C2 Malware (cần 2 terminal)
 ```bash
-# Terminal A — C2 Server (attacker)
-mininet> h4 python3 attack2_c2_malware.py --mode server --broker 10.0.0.1
-
-# Terminal B — Infected device
-mininet> h5 python3 attack2_c2_malware.py --mode client --broker 10.0.0.1
+h4 python3 attack2_c2_malware.py --mode bot --host 10.0.0.10 > /tmp/bot.log 2>&1 &
+hattacker python3 attack2_c2_malware.py --mode server --host 10.0.0.10
 ```
 
 #### Attack 3: Brute Force
 ```
-mininet> h4 python3 attack3_bruteforce.py --broker 10.0.0.1 --threads 10
+hattacker python3 attack3_brute_force.py --host 10.0.0.10
 ```
 
 #### Attack 4: Port Scan
 ```
-mininet> h4 python3 attack4_port_scan.py --target 10.0.0.0/24 --ports iot
+hattacker python3 attack4_port_scan.py --subnet 10.0.0 --start 1 --end 10
 ```
 
 #### Attack 5: Slow Drip Exfiltration
 ```
-mininet> h4 python3 attack5_slow_drip.py --broker 10.0.0.1 --duration 120
+hattacker python3 attack5_slow_drip.py --host 10.0.0.10
 ```
 
 ---
