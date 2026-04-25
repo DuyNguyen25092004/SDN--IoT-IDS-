@@ -29,24 +29,56 @@ sudo apt install mosquitto -y
 ---
 
 ## 🚀 Quy trình chạy đầy đủ
-
-### Bước 1 — Khởi động Ryu Controller (Terminal 1)
+**Terminal 1 — Ryu Controller:**
 ```bash
-ryu-manager ryu.app.simple_switch_13
+source ~/ryu-env-py39/bin/activate
+ryu-manager ryu_controller.py --wsapi-port 8080
 ```
 
-### Bước 2 — Khởi động Mininet (Terminal 2, cần sudo)
+**Terminal 2 — IDS API:**
 ```bash
-sudo python3 mininet_topology.py
+source ~/ryu-env-py39/bin/activate
+python ids_api.py --model best_model_xgb.pkl --scaler scaler.pkl \
+                  --encoder label_encoder.pkl --feat-encoder feature_encoders.pkl
 ```
 
-### Bước 3 — Trong Mininet CLI, chạy normal traffic trước
-```
-mininet> h2 python3 normal_traffic.py --broker 10.0.0.1 --duration 60 &
-mininet> h3 python3 normal_traffic.py --broker 10.0.0.1 --duration 60 &
+**Terminal 3 — Traffic Capture:**
+```bash
+sudo python3 traffic_capture.py --iface s1 --api http://127.0.0.1:5000 \
+             --csv /tmp/capture.csv --pcap /tmp/capture.pcap
 ```
 
-### Bước 4 — Chạy từng attack từ h4
+**Terminal 4 — Mininet:**
+```bash
+sudo mn --custom topology.py --topo iot \
+        --controller remote,ip=127.0.0.1,port=6633 \
+        --switch ovsk,protocols=OpenFlow13 --link tc --mac
+```
+
+### Check broker in mininet
+```bash
+mininet> hbroker netstat -tlnp | grep 1883
+```
+#### Output:
+```bash
+tcp        0      0 0.0.0.0:1883            0.0.0.0:*               LISTEN      12415/mosquitto     
+```
+
+### Neu khong co output nhu vay thi run:
+```bash
+mininet> hbroker mosquitto -p 1883 --listener 1883 0.0.0.0 --allow-anonymous true > /tmp/mosq2.log 2>&1 &
+```
+
+### Chạy tiếp theo trong Mininet CLI
+Bước 1 — Normal traffic (chạy ngầm, redirect log)
+```bash
+mininet> h1 python3 normal_traffic.py publisher --broker 10.0.0.10 --id h1 --topic sensors/h1 > /tmp/h1.log 2>&1 &
+mininet> h2 python3 normal_traffic.py publisher --broker 10.0.0.10 --id h2 --topic sensors/h2 > /tmp/h2.log 2>&1 &
+mininet> h3 python3 normal_traffic.py publisher --broker 10.0.0.10 --id h3 --topic sensors/h3 > /tmp/h3.log 2>&1 &
+mininet> h7 python3 normal_traffic.py subscriber --broker 10.0.0.10 --id h7 --topic sensors/# --duration 600 > /tmp/h7.log 2>&1 &
+mininet> h8 python3 normal_traffic.py subscriber --broker 10.0.0.10 --id h8 --topic sensors/# --duration 600 > /tmp/h8.log 2>&1 &
+```
+### Chạy từng attack từ h4
 
 #### Attack 1: MQTT Flood
 ```
