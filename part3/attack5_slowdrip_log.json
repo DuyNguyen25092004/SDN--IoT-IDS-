@@ -4,100 +4,100 @@
   "topic": "home/sensor/temp",
   "total_chunks": 13,
   "sent": 13,
-  "duration_s": 66.95635795593262,
-  "avg_rate_msg_s": 0.194156319084081,
+  "duration_s": 65.0540235042572,
+  "avg_rate_msg_s": 0.19983391187401756,
   "chunks_log": [
     {
       "seq": 0,
       "chunk_size": 32,
       "payload_size": 232,
       "topic": "home/sensor/temp",
-      "timestamp": "2026-04-25T16:58:08.995659"
+      "timestamp": "2026-04-27T12:54:42.419665"
     },
     {
       "seq": 1,
       "chunk_size": 32,
       "payload_size": 236,
       "topic": "home/sensor/temp",
-      "timestamp": "2026-04-25T16:58:12.776893"
+      "timestamp": "2026-04-27T12:54:47.486134"
     },
     {
       "seq": 2,
       "chunk_size": 32,
       "payload_size": 234,
       "topic": "home/sensor/temp",
-      "timestamp": "2026-04-25T16:58:16.806150"
+      "timestamp": "2026-04-27T12:54:52.275541"
     },
     {
       "seq": 3,
       "chunk_size": 32,
       "payload_size": 233,
       "topic": "home/sensor/temp",
-      "timestamp": "2026-04-25T16:58:21.061544"
+      "timestamp": "2026-04-27T12:54:58.379692"
     },
     {
       "seq": 4,
       "chunk_size": 32,
       "payload_size": 232,
       "topic": "home/sensor/temp",
-      "timestamp": "2026-04-25T16:58:24.958701"
+      "timestamp": "2026-04-27T12:55:02.397543"
     },
     {
       "seq": 5,
       "chunk_size": 32,
       "payload_size": 236,
       "topic": "home/sensor/temp",
-      "timestamp": "2026-04-25T16:58:31.409598"
+      "timestamp": "2026-04-27T12:55:08.745370"
     },
     {
       "seq": 6,
       "chunk_size": 32,
       "payload_size": 234,
       "topic": "home/sensor/temp",
-      "timestamp": "2026-04-25T16:58:37.854737"
+      "timestamp": "2026-04-27T12:55:13.912039"
     },
     {
       "seq": 7,
       "chunk_size": 32,
       "payload_size": 233,
       "topic": "home/sensor/temp",
-      "timestamp": "2026-04-25T16:58:43.797155"
+      "timestamp": "2026-04-27T12:55:17.775010"
     },
     {
       "seq": 8,
       "chunk_size": 32,
       "payload_size": 232,
       "topic": "home/sensor/temp",
-      "timestamp": "2026-04-25T16:58:47.649317"
+      "timestamp": "2026-04-27T12:55:22.497637"
     },
     {
       "seq": 9,
       "chunk_size": 32,
       "payload_size": 236,
       "topic": "home/sensor/temp",
-      "timestamp": "2026-04-25T16:58:51.643540"
+      "timestamp": "2026-04-27T12:55:26.155840"
     },
     {
       "seq": 10,
       "chunk_size": 32,
       "payload_size": 236,
       "topic": "home/sensor/temp",
-      "timestamp": "2026-04-25T16:58:56.894543"
+      "timestamp": "2026-04-27T12:55:30.864611"
     },
     {
       "seq": 11,
       "chunk_size": 32,
-      "payload_size": 235,
+      "payload_size": 234,
       "topic": "home/sensor/temp",
-      "timestamp": "2026-04-25T16:59:02.844684"
+      "timestamp": "2026-04-27T12:55:36.193914"
     },
     {
       "seq": 12,
       "chunk_size": 12,
       "payload_size": 214,
       "topic": "home/sensor/temp",
-      "timestamp": "2026-04-25T16:59:08.942384"
+      "timestamp": "2026-04-27T12:55:42.466031"
     }
   ],
-  "timestamp": "2026-04-25T16:59:15.952207"
+  "timestamp": "2026-04-27T12:55:47.473782"
 }

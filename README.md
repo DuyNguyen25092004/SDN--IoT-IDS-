@@ -43,18 +43,18 @@ python ids_api.py --model best_model_xgb.pkl --scaler scaler.pkl \
 ```
 
 **Terminal 3 — Traffic Capture:**
+### Run sau khi chayj Mininet
 ```bash
-sudo python3 traffic_capture.py --iface s1 --api http://127.0.0.1:5000 \
-             --csv /tmp/capture.csv --pcap /tmp/capture.pcap
+sudo python3 ~/sdn/Final_project/Part2/traffic_capture.py \
+  --iface s1-eth1 \
+  --api http://127.0.0.1:5000 \
+  --csv /tmp/sdn-iot-ids-logs/capture.csv
 ```
 
 **Terminal 4 — Mininet:**
 ```bash
 cd part3
-sudo mn --custom topology.py --topo iot \
-        --controller remote,ip=127.0.0.1,port=6633 \
-        --switch ovsk,protocols=OpenFlow13 --link tc --mac
-```
+sudo python3 ~/part3/mininet_topology.py
 
 ### Check broker in mininet
 ```bash
@@ -79,8 +79,18 @@ mininet> h3 python3 normal_traffic.py publisher --broker 10.0.0.10 --id h3 --top
 mininet> h7 python3 normal_traffic.py subscriber --broker 10.0.0.10 --id h7 --topic sensors/# &
 mininet> h8 python3 normal_traffic.py subscriber --broker 10.0.0.10 --id h8 --topic sensors/# &
 ```
-### Chạy từng attack từ h4
+### Chạy từng attack từ mininet
 
+Sau moi lan chay attacker thi se bi block ip 10.0.0.99:
+Can chay lenh unblock:
+```
+sh curl -s -X POST http://127.0.0.1:8080/ids/unblock \-H "Content-Type: application/json" \-d '{"ip":"10.0.0.99"}'
+```
+
+Kiem tra da unblock hay chua:
+```
+sh curl -s http://127.0.0.1:8080/ids/rules
+```
 #### Attack 1: MQTT Flood
 ```
 hattacker python3 attack1_mqtt_flood.py --host 10.0.0.10
@@ -88,7 +98,7 @@ hattacker python3 attack1_mqtt_flood.py --host 10.0.0.10
 
 #### Attack 2: C2 Malware (cần 2 terminal)
 ```bash
-h4 python3 attack2_c2_malware.py --mode bot --host 10.0.0.10 > /tmp/bot.log 2>&1 &
+hattacker python3 attack2_c2_malware.py --mode bot --host 10.0.0.10 &
 hattacker python3 attack2_c2_malware.py --mode server --host 10.0.0.10
 ```
 

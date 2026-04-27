@@ -104,8 +104,8 @@ IP_WHITELIST = {
 BLOCK_CONFIDENCE_THRESHOLD = 0.90
 
 # Number of attack detections within VOTE_WINDOW_SIZE packets before blocking
-BLOCK_VOTE_THRESHOLD = 5    # need 5 attack detections...
-VOTE_WINDOW_SIZE     = 10   # ...within a sliding window of 10 packets per IP
+BLOCK_VOTE_THRESHOLD = 20    # need 5 attack detections...
+VOTE_WINDOW_SIZE     = 30   # ...within a sliding window of 10 packets per IP
 
 # Per-IP sliding window: ip → deque of recent labels
 from collections import deque

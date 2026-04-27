@@ -1,1 +1,93 @@
-[]
+[
+  {
+    "topic": "home/device/ping",
+    "data": {
+      "status": "alive",
+      "uptime": 2633
+    },
+    "time": "2026-04-27T12:25:00.156790"
+  },
+  {
+    "topic": "home/device/data",
+    "data": {
+      "cmd_response": "scan_result",
+      "hosts_found": [
+        "10.0.0.2",
+        "10.0.0.3",
+        "10.0.0.4"
+      ],
+      "open_ports": {
+        "10.0.0.2": [
+          22,
+          80,
+          1883
+        ],
+        "10.0.0.3": [
+          443,
+          8080
+        ]
+      }
+    },
+    "time": "2026-04-27T12:25:04.368593"
+  },
+  {
+    "topic": "home/device/data",
+    "data": {
+      "cmd_response": "sensor",
+      "seq": 0,
+      "stolen": {
+        "wifi_ssid": "HomeNet",
+        "password": "secret456"
+      }
+    },
+    "time": "2026-04-27T12:25:15.832052"
+  },
+  {
+    "topic": "home/device/data",
+    "data": {
+      "cmd_response": "sensor",
+      "seq": 1,
+      "stolen": {
+        "wifi_ssid": "HomeNet",
+        "password": "secret456"
+      }
+    },
+    "time": "2026-04-27T12:25:15.832324"
+  },
+  {
+    "topic": "home/device/data",
+    "data": {
+      "cmd_response": "sensor",
+      "seq": 2,
+      "stolen": {
+        "wifi_ssid": "HomeNet",
+        "password": "secret456"
+      }
+    },
+    "time": "2026-04-27T12:25:15.832579"
+  },
+  {
+    "topic": "home/device/data",
+    "data": {
+      "cmd_response": "sensor",
+      "seq": 3,
+      "stolen": {
+        "wifi_ssid": "HomeNet",
+        "password": "secret456"
+      }
+    },
+    "time": "2026-04-27T12:25:15.832764"
+  },
+  {
+    "topic": "home/device/data",
+    "data": {
+      "cmd_response": "sensor",
+      "seq": 4,
+      "stolen": {
+        "wifi_ssid": "HomeNet",
+        "password": "secret456"
+      }
+    },
+    "time": "2026-04-27T12:25:15.832953"
+  }
+]
