@@ -32,9 +32,10 @@ The model artifacts (`best_model_xgb_v2.pkl`, `scaler_v2.pkl`, `label_encoder_v2
 | **T2** | IDS API (XGBoost classifier) |
 | **T3** | Traffic Capture (tshark → API) — start **after** T4 |
 | **T4** | Mininet topology + attack scripts |
-| **T5** *(optional)* | Helper terminal for `curl` unblock/whitelist between attacks |
 
 > **Critical order:** T1 → T2 → T4 → T3. T3 attaches to switch `s1`, which only exists after T4 starts the topology.
+>
+> The `curl` commands below for unblock/whitelist can be run from **any spare shell on the host** (e.g. a new tab) — they don't need a dedicated terminal.
 
 ---
 
@@ -171,28 +172,15 @@ You should soon see `[DBG-VEC #N]` and `[DBG-API #N]` lines as packets flow.
 
 ---
 
-## T5 — Optional helper terminal
-
-Open a 5th terminal and define a quick unblock helper:
-
-```bash
-unblock99() {
-  curl -s -X POST http://127.0.0.1:8080/ids/unblock \
-       -H 'Content-Type: application/json' \
-       -d '{"ip":"10.0.0.99"}'  ; echo
-  curl -s -X POST http://127.0.0.1:5000/whitelist/remove \
-       -H 'Content-Type: application/json' \
-       -d '{"ip":"10.0.0.99"}'  ; echo
-}
-```
-
-Run `unblock99` between attacks to clear both the OVS flow rule AND any leftover whitelist entry.
-
----
-
 ## Running the Attacks (issue at the `mininet>` prompt)
 
 > Project base path inside commands: `/home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-`
+>
+> Between attacks, run this one-liner from any spare shell to clear the SDN block on `10.0.0.99`:
+>
+> ```bash
+> curl -s -X POST http://127.0.0.1:8080/ids/unblock -H 'Content-Type: application/json' -d '{"ip":"10.0.0.99"}' ; echo
+> ```
 
 ### Attack 1 — MQTT Flood (DoS)
 
@@ -201,7 +189,7 @@ mininet> hattacker python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project
 ```
 
 Expected: `flood` / `malformed` at 93–100% confidence → BLOCKED.
-Then in T5: `unblock99`.
+Then unblock `10.0.0.99` (see one-liner above).
 
 > The flag is `--iter`, not `--count`.
 
@@ -215,7 +203,7 @@ mininet> hattacker python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project
 ```
 
 Expected: `malformed` / `c2_malware` / `dos` → BLOCKED.
-Then in T5: `unblock99`.
+Then unblock `10.0.0.99`.
 
 ---
 
@@ -226,7 +214,7 @@ mininet> hattacker python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project
 ```
 
 Expected: refined `brute_force` at 67–84% confidence → BLOCKED.
-Then in T5: `unblock99`.
+Then unblock `10.0.0.99`.
 
 > `--force` skips the anonymous-broker pre-check, which would otherwise abort the attack against an open broker.
 
@@ -239,7 +227,7 @@ mininet> hattacker python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project
 ```
 
 Expected: `port_scan` / `malformed` at ~100% confidence → BLOCKED.
-Then in T5: `unblock99`.
+Then unblock `10.0.0.99`.
 
 ---
 
@@ -251,7 +239,7 @@ Slow drip mimics legitimate sensor traffic. Choose ONE of two modes:
 
 The model often misclassifies the very first connect/publish bursts as `flood`/`malformed`, which would block `10.0.0.99` before the slow_drip pattern can build up. Whitelisting lets the IDS keep classifying every packet (so you'll see `slow_drip` accumulating in `/stats`) while suppressing the Ryu block.
 
-In **T5**, before the attack:
+From any spare shell, before the attack:
 ```bash
 curl -s -X POST http://127.0.0.1:8080/ids/unblock \
      -H 'Content-Type: application/json' -d '{"ip":"10.0.0.99"}' ; echo
@@ -264,7 +252,7 @@ In **T4**:
 mininet> hattacker python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/part3/attack5_slow_drip.py --host 10.0.0.10 --port 1883 --topic sensor/data --rate 0.5 --chunk-size 50
 ```
 
-After it finishes, in **T5**:
+After it finishes, from any spare shell:
 ```bash
 curl -s -X POST http://127.0.0.1:5000/whitelist/remove \
      -H 'Content-Type: application/json' -d '{"ip":"10.0.0.99"}' ; echo
@@ -276,7 +264,7 @@ Expected: `by_label.slow_drip` increases in `/stats`. T2 logs show
 
 #### (b) Production mode — actually block slow_drip (no whitelist)
 
-In **T5**:
+From any spare shell:
 ```bash
 curl -s -X POST http://127.0.0.1:8080/ids/unblock \
      -H 'Content-Type: application/json' -d '{"ip":"10.0.0.99"}' ; echo
