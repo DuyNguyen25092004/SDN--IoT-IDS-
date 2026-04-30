@@ -192,13 +192,14 @@ def parse_line(line: str) -> dict:
     if all(v == 0.0 for v in vec8):
         zero_vector_count += 1
 
-    if _debug_dumped < DEBUG_DUMP_FIRST_N:
-        _debug_dumped += 1
-        LOG.info("[DBG-VEC #%d] %-15s -> %-15s  raw=%s",
-                 _debug_dumped, row.get("ip.src"), row.get("ip.dst"),
-                 {f: row.get(f, "") for f in MODEL8_FEATURES})
-        LOG.info("[DBG-VEC #%d]   model8 (qos,hdr,len,mtyp,ret,tflg,msgid,dt) = %s",
-                 _debug_dumped, vec8)
+    # [DBG-VEC per-packet dump] disabled — kept for debugging only.
+    # if _debug_dumped < DEBUG_DUMP_FIRST_N:
+    #     _debug_dumped += 1
+    #     LOG.info("[DBG-VEC #%d] %-15s -> %-15s  raw=%s",
+    #              _debug_dumped, row.get("ip.src"), row.get("ip.dst"),
+    #              {k: row[k] for k in MODEL_FEATURES if k in row})
+    #     LOG.info("[DBG-VEC #%d]   model8 (qos,hdr,len,mtyp,ret,tflg,msgid,dt) = %s",
+    #              _debug_dumped, vec8)
 
     return row
 
@@ -231,11 +232,12 @@ def send_to_api(api_url: str, row: dict, q: queue.Queue):
 
             api_label_counter[mlabel] += 1
 
-            global first_api_logged
-            if first_api_logged < DEBUG_DUMP_FIRST_N:
-                first_api_logged += 1
-                LOG.info("[DBG-API #%d] src=%-15s model=%-12s refined=%-12s conf=%.3f is_atk=%s",
-                         first_api_logged, src_ip, mlabel, label, conf, is_atk)
+            # [DBG-API per-packet dump] disabled — kept for debugging only.
+            # global first_api_logged
+            # if first_api_logged < DEBUG_DUMP_FIRST_N:
+            #     first_api_logged += 1
+            #     LOG.info("[DBG-API #%d] src=%-15s model=%-12s refined=%-12s conf=%.3f is_atk=%s",
+            #              first_api_logged, src_ip, mlabel, label, conf, is_atk)
 
             if is_atk and result.get("blocked"):
                 LOG.warning("\u26a0 ATTACK BLOCKED [%-12s] conf=%.2f src=%-15s",
@@ -276,26 +278,23 @@ def stats_printer():
         rate    = captured / max(elapsed, 1)
         LOG.info("Stats: captured=%d sent=%d errors=%d rate=%.1f pkt/s",
                  captured, sent_to_api, errors, rate)
-        # ---- DEBUG: per-source-IP histogram (top 12) -----------------------
-        top_src = src_ip_counter.most_common(12)
-        LOG.info("[DBG-SRC] top sources : %s",
-                 ", ".join(f"{ip}={n}" for ip, n in top_src))
-        # Specifically tell us which h1..h8 are ALIVE
-        normal_seen = {f"10.0.0.{i}" for i in range(1, 9)} & set(src_ip_counter)
-        normal_miss = {f"10.0.0.{i}" for i in range(1, 9)} - set(src_ip_counter)
-        LOG.info("[DBG-SRC] normal hosts present=%s  missing=%s",
-                 sorted(normal_seen) or "NONE", sorted(normal_miss) or "-")
-        # ---- DEBUG: msgtype + tcp-flag histograms --------------------------
-        LOG.info("[DBG-MQT] mqtt.msgtype: %s",
-                 dict(msgtype_counter.most_common(8)))
-        LOG.info("[DBG-TCP] tcp.flags  : %s",
-                 dict(tcpflag_counter.most_common(8)))
-        # ---- DEBUG: zero-vector ratio + API label distribution -------------
-        zr = (100 * zero_vector_count / captured) if captured else 0
-        LOG.info("[DBG-VEC] all-zero 8-feature vectors: %d/%d (%.1f%%)",
-                 zero_vector_count, captured, zr)
-        LOG.info("[DBG-API] model_label distribution  : %s",
-                 dict(api_label_counter.most_common()))
+        # ---- DEBUG histograms disabled — kept for debugging only ------------
+        # top_src = src_ip_counter.most_common(12)
+        # LOG.info("[DBG-SRC] top sources : %s",
+        #          ", ".join(f"{ip}={n}" for ip, n in top_src))
+        # normal_seen = {f"10.0.0.{i}" for i in range(1, 9)} & set(src_ip_counter)
+        # normal_miss = {f"10.0.0.{i}" for i in range(1, 9)} - set(src_ip_counter)
+        # LOG.info("[DBG-SRC] normal hosts present=%s  missing=%s",
+        #          sorted(normal_seen) or "NONE", sorted(normal_miss) or "-")
+        # LOG.info("[DBG-MQT] mqtt.msgtype: %s",
+        #          dict(msgtype_counter.most_common(8)))
+        # LOG.info("[DBG-TCP] tcp.flags  : %s",
+        #          dict(tcpflag_counter.most_common(8)))
+        # zr = (100 * zero_vector_count / captured) if captured else 0
+        # LOG.info("[DBG-VEC] all-zero 8-feature vectors: %d/%d (%.1f%%)",
+        #          zero_vector_count, captured, zr)
+        # LOG.info("[DBG-API] model_label distribution  : %s",
+        #          dict(api_label_counter.most_common()))
 
 
 def write_csv_header(csv_path: str):

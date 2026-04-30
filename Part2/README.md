@@ -1,385 +1,315 @@
 # SDN IoT IDS — Run Guide
 
-Verified 4-terminal demo procedure for Mininet + Ryu + XGBoost IDS.
+4-terminal demo. The exact commands below are the ones that worked in
+the last successful end-to-end run. Use them in order.
 
 ---
 
-## Prerequisites
+## 0. Prerequisites
 
-System-wide dependencies (needed inside Mininet hosts):
+- Linux + sudo (password cached once with `sudo -v` **per terminal** — Ryu calls `ovs-vsctl` synchronously and will block on a password prompt)
+- Python 3.9 venv for **Ryu** at `~/ryu-env-py39/`
+- Python 3.12 venv for **IDS** at `Part2/venv/`
+- `mininet`, `openvswitch`, `mosquitto`, `tshark`
+
+### Optional: passwordless sudo helper for unattended runs
+
+Mininet's CLI dies if you pipe a password into `sudo -S` (the password
+becomes Mininet's first command). The cleanest workaround is a tiny
+askpass helper:
 
 ```bash
-sudo pip3 install paho-mqtt --break-system-packages
+cat >/tmp/askpass.sh <<'EOF'
+#!/bin/sh
+echo YOUR_SUDO_PASSWORD
+EOF
+chmod +x /tmp/askpass.sh
 ```
 
-Venv dependencies (for IDS API and capture):
+Then each terminal that needs sudo (T1 Ryu, T3 capture, T4 Mininet)
+caches credentials with:
 
 ```bash
-cd ~/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/Part2
-source venv/bin/activate
-pip install flask joblib numpy requests xgboost scikit-learn
+SUDO_ASKPASS=/tmp/askpass.sh sudo -A -v
 ```
 
-The model artifacts (`best_model_xgb_v2.pkl`, `scaler_v2.pkl`, `label_encoder_v2.pkl`) live in `Part2/` and are auto-loaded by `ids_api.py` from its CWD.
-
 ---
 
-## Terminal Layout
+## 1. Clean slate (run once before each demo)
 
-| Terminal | Role |
-|----------|------|
-| **T1** | Ryu SDN Controller |
-| **T2** | IDS API (XGBoost classifier) |
-| **T3** | Traffic Capture (tshark → API) — start **after** T4 |
-| **T4** | Mininet topology + attack scripts |
-
-> **Critical order:** T1 → T2 → T4 → T3. T3 attaches to switch `s1`, which only exists after T4 starts the topology.
->
-> The `curl` commands below for unblock/whitelist can be run from **any spare shell on the host** (e.g. a new tab) — they don't need a dedicated terminal.
-
----
-
-## T0 — Clean slate (run before each fresh demo)
-
-In any terminal:
+Any shell:
 
 ```bash
-sudo -v   # cache sudo password once
-sudo sh -c '
-  mn -c >/dev/null 2>&1
-  killall -9 mosquitto 2>/dev/null
-  pkill -9 -f "ryu-manager"        2>/dev/null
-  pkill -9 -f "ids_api.py"         2>/dev/null
-  pkill -9 -f "traffic_capture.py" 2>/dev/null
-  pkill -9 -f "topology.py"        2>/dev/null
-  pkill -9 -f "ovs-testcontroller" 2>/dev/null
-  ip link show s1 >/dev/null 2>&1 && ovs-vsctl del-br s1 2>/dev/null
-  ip link del s1-eth1 2>/dev/null
-  ip link del s1-eth2 2>/dev/null
-  rm -f /tmp/capture.csv /tmp/mosquitto.conf
-  sleep 1
-  echo CLEAN
-'
+sudo -v
+sudo sh -c 'mn -c >/dev/null 2>&1; killall -9 mosquitto ryu-manager 2>/dev/null; \
+            pkill -9 -f "ids_api.py|traffic_capture.py|topology.py" 2>/dev/null; \
+            ovs-vsctl --if-exists del-br s1; echo CLEAN'
 mkdir -p /tmp/part2_demo
 ```
 
-> ⚠ **Never use `pkill -f mosquitto`** — that pattern matches any shell whose argv contains the word `mosquitto` (e.g. the very shell that runs the command), and it will kill your terminal. Use `killall -9 mosquitto` instead, which matches process **name** only.
+---
+
+## 2. Terminal layout
+
+| # | Terminal      | What it runs                       |
+|---|---------------|------------------------------------|
+| 1 | T1 — Ryu      | SDN controller (port 8080)         |
+| 2 | T2 — IDS      | Flask ML API   (port 5000)         |
+| 3 | T3 — Capture  | tshark → IDS API (after T4 is up)  |
+| 4 | T4 — Mininet  | topology + mosquitto broker        |
+
+Use any spare shell for `curl` (`/ids/unblock`, `/reset`, …).
 
 ---
 
-## T1 — Ryu Controller
+## 3. T1 — Ryu controller
 
 ```bash
-cd ~/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/Part2
 source ~/ryu-env-py39/bin/activate
+cd Part2          # skip if already in Part2
+# IMPORTANT: cache sudo in *this* shell first — _install_mirror_rule()
+# in ryu_controller.py calls `sudo ovs-vsctl` synchronously, and a
+# password prompt blocks the eventlet greenthread → no flows installed.
+SUDO_ASKPASS=/tmp/askpass.sh sudo -A -v
 ryu-manager ryu_controller.py --observe-links --wsapi-port 8080 \
     2>&1 | tee /tmp/part2_demo/T1_ryu.log
 ```
 
-Wait for:
-```
-WSGIServer: starting up on http://0.0.0.0:8080
-```
-(`Switch connected: dpid=0000000000000001` will appear once T4 starts the topology.)
+Wait for: `dpid=0000000000000001`. The line `ovs-vsctl: '11' is not a
+valid UUID` / `OVS mirror setup failed` printed by the controller is
+harmless — the real mirror is created from T3.
 
 ---
 
-## T2 — IDS API
+## 4. T2 — IDS API
 
 ```bash
-cd ~/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/Part2
-source venv/bin/activate
+cd Part2
 IDS_BLOCK_VOTES=10 IDS_BLOCK_CONF=0.30 IDS_VOTE_WINDOW=30 \
 RYU_URL=http://127.0.0.1:8080/ids/block \
-python3 ids_api.py \
-    2>&1 | tee /tmp/part2_demo/T2_ids.log
+./venv/bin/python3 ids_api.py 2>&1 | tee /tmp/part2_demo/T2_ids.log
 ```
 
-> Use the `venv` virtualenv (NOT `ryu-env-py39`). The `*_v2.pkl` artifacts auto-load from CWD.
-
-Wait for:
-```
-* Running on http://127.0.0.1:5000
-```
-
-Tunable env vars:
-- `IDS_BLOCK_VOTES` — attack votes within the window required to block (default 10).
-- `IDS_BLOCK_CONF`  — minimum classifier confidence required to block (default 0.30).
-- `IDS_VOTE_WINDOW` — vote window size, in classifications (default 30).
-- `RYU_URL`         — Ryu block endpoint.
-
----
-
-## T4 — Mininet (start before T3)
-
-> ⚠ **Do NOT pipe the sudo password into `topology.py`.** A command like
-> `echo 250704 | sudo -S python3 topology.py` leaves stdin attached to the pipe; the leftover bytes are read by Mininet's CLI as `*** Unknown command: 250704` and the topology immediately tears itself down.
->
-> Cache sudo first, then launch with a real TTY.
-
+Health check (any spare shell):
 ```bash
-cd ~/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/Part2
-sudo -v                       # cache credential once (~15 min)
-sudo python3 topology.py      # NO pipe, NO -S
-```
-
-You should land at the `mininet>` prompt with hosts `h1–h8`, `hbroker`, `hattacker`.
-
-### Restart the broker on 0.0.0.0
-
-`topology.py` auto-starts mosquitto bound to `127.0.0.1` only — attackers can't reach it. Replace it with a 0.0.0.0 listener:
-
-```
-mininet> hbroker killall -9 mosquitto
-mininet> hbroker bash -c "echo -e 'listener 1883 0.0.0.0\nallow_anonymous true' > /tmp/mosquitto.conf && mosquitto -d -c /tmp/mosquitto.conf"
-mininet> hbroker netstat -tlnp | grep 1883
-```
-
-The last line should show `0.0.0.0:1883`. Sanity test:
-
-```
-mininet> hattacker mosquitto_pub -h 10.0.0.10 -t test -m hello
+curl -s http://127.0.0.1:5000/health
 ```
 
 ---
 
-## T3 — Traffic Capture (start AFTER T4 reaches `mininet>`)
+## 5. T4 — Mininet (start before T3)
+
+From the repo root (or `Part2/`):
 
 ```bash
-cd ~/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/Part2
-source venv/bin/activate
+cd Part2          # skip if already in Part2
+SUDO_ASKPASS=/tmp/askpass.sh sudo -A -v   # cache creds *without* poisoning stdin
+SUDO_ASKPASS=/tmp/askpass.sh sudo -A python3 topology.py
+```
 
-# Bring up the OVS internal port (s1 only exists once T4 is running)
+> Do NOT use `echo PASS | sudo -S python3 topology.py` — `sudo`
+> consumes stdin and Mininet's CLI immediately exits.
+
+Wait until the prompt becomes `mininet>`. The default `mosquitto`
+started by `topology.py` binds to `127.0.0.1` only, so attackers from
+`10.0.0.99` get TCP `RST`. Drop a tiny config that listens on
+`0.0.0.0`, restart the broker inside `hbroker`'s netns, and sanity-
+check connectivity:
+
+From any spare shell (once, before this section):
+```bash
+cat >/tmp/mosq_open.conf <<'EOF'
+listener 1883 0.0.0.0
+allow_anonymous true
+EOF
+```
+
+Then at the `mininet>` prompt:
+```text
+mininet> hbroker pkill -f mosquitto; sleep 0.5
+mininet> hbroker mosquitto -c /tmp/mosq_open.conf -d
+mininet> hattacker ping -c1 10.0.0.10
+```
+
+Leave this terminal at the `mininet>` prompt — you will run all
+attacks from here.
+
+---
+
+## 6. T3 — Traffic capture
+
+**Important:** open this in a NEW shell (not the Mininet one). The OVS
+mirror has to be wired up before tshark can see anything; without it,
+tshark exits with `Captured: 0 packets`.
+
+```bash
+cd Part2          # skip if already in Part2
+SUDO_ASKPASS=/tmp/askpass.sh sudo -A -v   # cache creds for this terminal
+
+# 1) Bring s1 up and create the mirror that copies every packet to s1 itself
 sudo ip link set s1 up
-
-# Set up OVS mirror — copies all switch traffic to s1 for tshark
 sudo ovs-vsctl -- set Bridge s1 mirrors=@m \
-    -- --id=@s1 get Port s1 \
-    -- --id=@m create Mirror name=ids-mirror \
-        select-all=true \
-        output-port=@s1 \
-    || true   # OK if mirror already exists
+               -- --id=@s1 get Port s1 \
+               -- --id=@m create Mirror name=ids-mirror \
+                  select-all=true output-port=@s1
 
-# Start capture
-sudo -E python3 traffic_capture.py \
-    --iface s1 \
-    --api http://127.0.0.1:5000 \
-    --csv capture.csv \
-    2>&1 | tee /tmp/part2_demo/T3_capture.log
+# 2) Start the capture (uses the IDS venv so paho/etc. are present)
+sudo -E ./venv/bin/python3 traffic_capture.py \
+    --iface s1 --api http://127.0.0.1:5000 \
+    --csv /tmp/part2_demo/capture.csv 2>&1 | tee /tmp/part2_demo/T3_capture.log
 ```
 
-You should soon see `[DBG-VEC #N]` and `[DBG-API #N]` lines as packets flow.
+What you will see (only two kinds of lines):
+
+```
+Stats: captured=… sent=… errors=… rate=… pkt/s
+⚠ ATTACK BLOCKED [<label>] conf=0.xx src=10.0.0.99
+```
+
+All `[DBG-*]` debug lines are commented out; uncomment them in
+`traffic_capture.py` only when troubleshooting.
+
+> If `tshark` exits immediately with 0 packets, the mirror isn't set
+> up. Re-run the two `ovs-vsctl` lines above.
 
 ---
 
-## Running the Attacks (issue at the `mininet>` prompt)
+## 7. Attacks (run from T4 / Mininet CLI)
 
-> Project base path inside commands: `/home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-`
->
-> Between attacks, run this one-liner from any spare shell to clear the SDN block on `10.0.0.99`:
->
-> ```bash
-> curl -s -X POST http://127.0.0.1:8080/ids/unblock -H 'Content-Type: application/json' -d '{"ip":"10.0.0.99"}' ; echo
-> ```
+> **Note:** the Mininet CLI does **not** expand shell variables — you
+> must paste the full literal path. The path used below is:
+> `/home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/part3`
+> (note the escaped space in `Final\ Term`). Adjust if your repo lives
+> elsewhere.
 
-### Attack 1 — MQTT Flood (DoS)
-
-```
-mininet> hattacker python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/part3/attack1_mqtt_flood.py --host 10.0.0.10 --port 1883 --threads 10 --iter 5000
-```
-
-Expected: `flood` / `malformed` at 93–100% confidence → BLOCKED.
-Then unblock `10.0.0.99` (see one-liner above).
-
-> The flag is `--iter`, not `--count`.
-
----
-
-### Attack 2 — C2 Malware
-
-```
-mininet> hattacker bash -c "python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/part3/attack2_c2_malware.py --mode server --host 10.0.0.10 &"
-mininet> hattacker python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/part3/attack2_c2_malware.py --mode bot --host 10.0.0.10
-```
-
-Expected: `malformed` / `c2_malware` / `dos` → BLOCKED.
-Then unblock `10.0.0.99`.
-
----
-
-### Attack 3 — Brute Force
-
-```
-mininet> hattacker python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/part3/attack3_brute_force.py --host 10.0.0.10 --delay 0.1 --force
-```
-
-Expected: refined `brute_force` at 67–84% confidence → BLOCKED.
-Then unblock `10.0.0.99`.
-
-> `--force` skips the anonymous-broker pre-check, which would otherwise abort the attack against an open broker.
-
----
-
-### Attack 4 — Port Scan
-
-```
-mininet> hattacker python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/part3/attack4_port_scan.py --subnet 10.0.0 --start 1 --end 10 --mqtt-broker 10.0.0.10
-```
-
-Expected: `port_scan` / `malformed` at ~100% confidence → BLOCKED.
-Then unblock `10.0.0.99`.
-
----
-
-### Attack 5 — Slow Drip Exfiltration
-
-Slow drip mimics legitimate sensor traffic. Choose ONE of two modes:
-
-#### (a) Demo mode — show full slow_drip detection (whitelisted, NOT blocked)
-
-The model often misclassifies the very first connect/publish bursts as `flood`/`malformed`, which would block `10.0.0.99` before the slow_drip pattern can build up. Whitelisting lets the IDS keep classifying every packet (so you'll see `slow_drip` accumulating in `/stats`) while suppressing the Ryu block.
-
-From any spare shell, before the attack:
+Between attacks, clear state from any spare shell:
 ```bash
 curl -s -X POST http://127.0.0.1:8080/ids/unblock \
-     -H 'Content-Type: application/json' -d '{"ip":"10.0.0.99"}' ; echo
-curl -s -X POST http://127.0.0.1:5000/whitelist/add \
-     -H 'Content-Type: application/json' -d '{"ip":"10.0.0.99"}' ; echo
+     -H 'Content-Type: application/json' -d '{"ip":"10.0.0.99"}'
+curl -s -X POST http://127.0.0.1:5000/reset \
+     -H 'Content-Type: application/json' -d '{"ip":"10.0.0.99","stats":true}'
 ```
 
-In **T4**:
+### Attack 1 — Flood
+```text
+mininet> hattacker python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/part3/attack1_mqtt_flood.py --host 10.0.0.10 --iter 5000 --threads 10
 ```
-mininet> hattacker python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/part3/attack5_slow_drip.py --host 10.0.0.10 --port 1883 --topic sensor/data --rate 0.5 --chunk-size 50
+Expected: `⚠ ATTACK BLOCKED [flood] conf≈1.00`
+
+> Note: `attack1_mqtt_flood.py` uses `--host` (not `--target`).
+> `attack_dos.py` and `attack_malformed.py` use `--target`.
+
+> The flood is intentionally heavy — kill it after detection if needed:
+> `sudo pkill -9 -f attack1_mqtt_flood.py`
+
+### Attack 3 — Brute force CONNECT
+```text
+mininet> hattacker python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/part3/attack3_brute_force.py --host 10.0.0.10 --port 1883 --delay 0.5 --max 25 --force
 ```
+Expected: `⚠ ATTACK BLOCKED [brute_force] conf≈0.94`
 
-After it finishes, from any spare shell:
-```bash
-curl -s -X POST http://127.0.0.1:5000/whitelist/remove \
-     -H 'Content-Type: application/json' -d '{"ip":"10.0.0.99"}' ; echo
+### Attack 5 — Slow drip exfiltration
+```text
+mininet> hattacker python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/part3/attack5_slow_drip.py --host 10.0.0.10 --port 1883 --topic sensor/data --rate 0.5 --chunk-size 8
 ```
+Expected: `⚠ ATTACK BLOCKED [slow_drip] conf≈0.98`
+(Use `--chunk-size 8`. Larger chunk sizes generate fewer publishes and
+fail to reach the 10-vote threshold inside the 30 s window.)
 
-Expected: `by_label.slow_drip` increases in `/stats`. T2 logs show
-`ATTACK [slow_drip] … src=10.0.0.99` followed by
-`-> Skip block: 10.0.0.99 whitelisted` (no Ryu block — by design).
+> **Important:** Attack 5 keeps publishing for ~90 s (50 chunks). Kill
+> it before issuing the next attack, otherwise its log spam corrupts
+> the next Mininet command line:
+> `mininet> hattacker pkill -9 -f attack5_slow_drip`
 
-#### (b) Production mode — actually block slow_drip (no whitelist)
-
-From any spare shell:
-```bash
-curl -s -X POST http://127.0.0.1:8080/ids/unblock \
-     -H 'Content-Type: application/json' -d '{"ip":"10.0.0.99"}' ; echo
+### Attack 6 — DoS flood
+```text
+mininet> hattacker timeout 12 python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/part3/attack_dos.py --target 10.0.0.10 --rate 200 --threads 8
 ```
+Expected: `⚠ ATTACK BLOCKED [brute_force] conf≈0.98`
+(`attack_dos.py` opens many short TCP CONNECTs in parallel without
+ever publishing, so the refinement rule rewrites the model's prediction
+to `brute_force`. The block itself fires correctly; the label is just
+the closest behavioural match.)
 
-In **T4**:
+### Attack 7 — Malformed packets
+```text
+mininet> hattacker python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/part3/attack_malformed.py --target 10.0.0.10 --port 1883 --rate 50 --duration 15
 ```
-mininet> hattacker python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/part3/attack5_slow_drip.py --host 10.0.0.10 --port 1883 --topic sensor/data --rate 0.5 --chunk-size 50
-```
+Expected: `⚠ ATTACK BLOCKED [brute_force] conf≈0.98`
+(Same caveat as Attack 6 — malformed packets establish the TCP
+connection but never produce a valid PUBLISH, so the refiner labels
+the burst `brute_force`. The block itself triggers as expected.)
 
-T3 will log `⚠ ATTACK BLOCKED [slow_drip] …` and T2 will log `BLOCKED src=10.0.0.99 label=slow_drip`. The attack will terminate early once Ryu installs the drop rule.
+> **Skipped:** Attack 2 (C2 malware) and Attack 4 (port scan) — labels
+> are not reliable on this stack (per-packet model can't see C2 timing,
+> port scan is filtered out by the MQTT capture).
 
 ---
 
-## Unblocking Between Attacks
+## 8. Useful REST endpoints
 
-After each attack, hattacker (`10.0.0.99`) is blocked at the SDN layer. Clear it before the next run:
-
-```bash
-curl -s -X POST http://127.0.0.1:8080/ids/unblock \
-     -H 'Content-Type: application/json' \
-     -d '{"ip":"10.0.0.99"}'
-```
-
-Verify no flow rule remains:
-```bash
-sudo ovs-ofctl -O OpenFlow13 dump-flows s1 | grep 10.0.0.99
-# (no output expected)
-```
-
-If you ran Attack 5 mode (a), also remove from the whitelist:
-```bash
-curl -s -X POST http://127.0.0.1:5000/whitelist/remove \
-     -H 'Content-Type: application/json' \
-     -d '{"ip":"10.0.0.99"}'
-```
+| Method | URL                                  | Purpose                                  |
+|--------|--------------------------------------|------------------------------------------|
+| GET    | `http://127.0.0.1:5000/health`       | model + uptime                           |
+| GET    | `http://127.0.0.1:5000/stats`        | counters, config, blocked events         |
+| POST   | `http://127.0.0.1:5000/reset`        | clear vote-window + behavior history     |
+| GET    | `http://127.0.0.1:5000/whitelist`    | list whitelisted IPs                     |
+| GET    | `http://127.0.0.1:8080/ids/rules`    | active OF block rules                    |
+| POST   | `http://127.0.0.1:8080/ids/unblock`  | remove OF block for an IP                |
 
 ---
 
-## Broker Restart (if connection refused)
+## 9. Tear down
 
-If attacks fail with `Connection refused` / `TimeoutError`, the broker probably died:
-
-```
-mininet> hbroker killall -9 mosquitto
-mininet> hbroker bash -c "echo -e 'listener 1883 0.0.0.0\nallow_anonymous true' > /tmp/mosquitto.conf && mosquitto -d -c /tmp/mosquitto.conf"
-mininet> hbroker netstat -tlnp | grep 1883
-```
-
-> Again: do **not** use `pkill -f mosquitto` from within Mininet either — `killall -9 mosquitto` only.
-
----
-
-## Monitoring & Verification
-
-```bash
-# Detection statistics (per-label counters)
-curl -s http://127.0.0.1:5000/stats     | python3 -m json.tool
-
-# Health + loaded model info
-curl -s http://127.0.0.1:5000/health    | python3 -m json.tool
-
-# Current whitelist
-curl -s http://127.0.0.1:5000/whitelist | python3 -m json.tool
-
-# Active Ryu block rules
-curl -s http://127.0.0.1:8080/ids/rules | python3 -m json.tool
-
-# Live OpenFlow drop rules on s1
-sudo ovs-ofctl -O OpenFlow13 dump-flows s1 | grep -E "drop|10.0.0.99"
-
-# Quick log scan
-grep -E "BLOCKED|ATTACK \[" /tmp/part2_demo/T2_ids.log | tail -30
-```
-
----
-
-## Tear down
-
-```
+In T4:
+```text
 mininet> exit
 ```
 
-Then in any terminal:
-
+Then any shell:
 ```bash
-sudo sh -c '
-  mn -c >/dev/null 2>&1
-  killall -9 mosquitto 2>/dev/null
-  pkill -9 -f "ryu-manager|ids_api.py|traffic_capture.py" 2>/dev/null
-  ovs-vsctl del-br s1 2>/dev/null
-  echo DONE
-'
+sudo sh -c 'mn -c >/dev/null 2>&1; killall -9 mosquitto; \
+            pkill -9 -f "ryu-manager|ids_api.py|traffic_capture.py"; \
+            ovs-vsctl --if-exists del-br s1; echo DONE'
+```
+
+The OVS mirror disappears with the bridge — no separate cleanup
+needed. If you keep the bridge around for some reason, drop just the
+mirror with:
+```bash
+sudo ovs-vsctl clear Bridge s1 mirrors
 ```
 
 ---
 
-## Common Gotchas (verified)
+## 10. Common gotchas
 
-| Symptom | Cause | Fix |
-|---|---|---|
-| `*** Unknown command: 250704` then immediate Mininet shutdown | `echo PASS \| sudo -S python3 topology.py` leaves stdin tied to the pipe → Mininet CLI reads leftover bytes. | `sudo -v` first, then `sudo python3 topology.py` (no pipe). |
-| Attacker can't reach broker | `topology.py` starts mosquitto on `127.0.0.1` only. | `hbroker killall -9 mosquitto` then re-launch with `listener 1883 0.0.0.0`. |
-| Terminal dies when restarting broker | `pkill -f mosquitto` matches the shell argv that contains the word "mosquitto". | Use `killall -9 mosquitto`. |
-| T3 capture says `Cannot find device s1` | Capture started before T4 created the bridge. | Always start T4 (Mininet) before T3 (capture). |
-| Attack 3 exits without sending anything | Brute-force script's pre-check rejects anonymous brokers. | Add `--force`. |
-| Attack 5 blocked before any slow_drip pattern shows | Early packets misclassified as `flood`/`malformed`, IDS blocks. | Whitelist `10.0.0.99` for the demo, OR accept that "production mode" terminates the attack early (which is correct behaviour). |
-| Repeated attacks blocked instantly | Previous run's drop rule still installed. | `unblock99` between every attack. |
+- **Don't pipe `sudo -S` into `topology.py`** — it poisons Mininet's
+  stdin and produces `*** Unknown command: <password>`. Use `sudo -v`
+  (or `SUDO_ASKPASS=… sudo -A …`) first, then `sudo python3 topology.py`.
+- **Cache sudo in T1 (Ryu) too.** `_install_mirror_rule()` runs
+  `sudo ovs-vsctl` synchronously; an unprimed sudo prompt freezes the
+  greenthread and the table-miss flow is never installed → `pingall`
+  is all `X` and `dump-flows s1` is empty.
+- **Default `mosquitto` binds to `127.0.0.1`.** From inside `hbroker`
+  this means attackers in another netns get TCP RST. Always start the
+  broker with `mosquitto -c /tmp/mosq_open.conf -d`.
+- **Don't `pkill -f mosquitto`** from inside the same shell that ran
+  it — `pkill` matches its own argv. Use `killall -9 mosquitto`.
+- **Vote-window persists per-IP.** Hit `/reset` between attacks if you
+  want a clean label trace, otherwise residue from the previous attack
+  can trigger an early block.
+- **Kill long-running attacks before starting the next one.** Attack 5
+  prints chunk progress for ~90 s; if it's still running when you type
+  the next `mininet>` command, the log output mangles your input
+  (e.g. `hattacker` becomes `attacker` or `hpython3`).
 
 ---
 
-## Host IP Reference
+## Host IP reference
 
-| Host | IP |
-|------|----|
-| h1–h8 | 10.0.0.1 – 10.0.0.8 |
-| hbroker | 10.0.0.10 |
-| hattacker | 10.0.0.99 |
+| Host       | IP          | Role        |
+|------------|-------------|-------------|
+| h1–h8      | 10.0.0.1–8  | sensors     |
+| hbroker    | 10.0.0.10   | MQTT broker |
+| hattacker  | 10.0.0.99   | attacker    |

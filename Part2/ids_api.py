@@ -218,7 +218,11 @@ def refine_attack_label(model_label: str, src_ip: str, raw: dict) -> str:
     cutoff = ts - BEHAVIOR_WINDOW_SECS
     recent = [h for h in hist if h[0] >= cutoff]
     n      = len(recent)
-    if n < 5:
+    # Refinement runs from packet 1 onward; rules below have their own
+    # minimums (n_connect>=2, n_publish>=2). Keeping the floor at >=2
+    # avoids a div-by-zero on span_s while still letting brute_force /
+    # slow_drip fire from the 2nd attack packet.
+    if n < 2:
         return model_label
 
     span_s     = max(0.001, recent[-1][0] - recent[0][0])
@@ -239,12 +243,19 @@ def refine_attack_label(model_label: str, src_ip: str, raw: dict) -> str:
     if n_syn_only >= 5 and n_mqtt == 0:
         return "port_scan"
 
-    # 3) brute_force — rapid CONNECTs with NO successful publishes
-    if n_connect >= 5 and n_publish == 0:
+    # 3) brute_force — repeated CONNECTs with NO successful publishes.
+    #    Lowered to >=2 so the label settles on the second attack packet
+    #    instead of the model's per-packet "malformed" verdict.
+    if n_connect >= 2 and n_publish == 0:
         return "brute_force"
 
-    # 4) slow_drip — sustained low-rate PUBLISHes over a meaningful span
-    if 0.4 <= rate <= 5.0 and n_publish >= 3 and span_s >= 4.0:
+    # 4) slow_drip — low/moderate rate with at least 2 PUBLISHes spaced
+    #    out over >=1.5s. Loosened so the label can settle BEFORE the
+    #    block-vote threshold fires (was: rate<=5, n_pub>=3, span>=4 —
+    #    too slow when the per-packet model already votes "attack").
+    #    Safe vs. legit publishers: this branch only runs when the model
+    #    has already classified the packet as an attack class.
+    if rate <= 8.0 and n_publish >= 2 and span_s >= 1.5:
         return "slow_drip"
 
     # 5) c2_malware — model labelled it malformed, moderate periodic PUBLISHes
@@ -461,6 +472,28 @@ def remove_whitelist():
     IP_WHITELIST.discard(ip)
     LOG.info("Whitelist remove: %s", ip)
     return jsonify({"status": "removed", "ip": ip, "whitelist": sorted(IP_WHITELIST)})
+
+
+@app.route("/reset", methods=["POST"])
+def reset_state():
+    """Clear per-IP vote window + behavior history (and optionally stats).
+    Body: {"ip": "10.0.0.99"} to scope to one IP, omit to clear all.
+           {"stats": true} to also zero the stats counters."""
+    body = request.get_json(silent=True) or {}
+    ip   = (body.get("ip") or "").strip()
+    if ip:
+        ip_vote_window.pop(ip, None)
+        ip_behavior.pop(ip, None)
+        LOG.info("Reset state for %s", ip)
+        scope = ip
+    else:
+        ip_vote_window.clear()
+        ip_behavior.clear()
+        LOG.info("Reset state for ALL ips")
+        scope = "all"
+    if body.get("stats"):
+        stats.clear()
+    return jsonify({"status": "reset", "scope": scope})
 
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
