@@ -28,7 +28,7 @@ import argparse
 import logging
 import os
 import time
-from collections import defaultdict, deque
+from collections import defaultdict, deque, Counter
 from datetime import datetime
 
 import joblib
@@ -49,27 +49,25 @@ MODEL         = None
 SCALER        = None
 LABEL_ENCODER = None
 
-# ─── 8 features — theo thứ tự importance thực tế từ model ────────────────────
-# mqtt.msgid      0.3219  ← dominant: bruteforce có msgid tuần tự/lặp
-# tcp.len         0.1375  ← payload size (DoS/flood = 0)
-# mqtt.msgtype    0.1358  ← loại MQTT packet
-# mqtt.hdrflags   0.1220  ← MQTT header flags (PUBLISH=0x30, CONNECT=0x10...)
-# mqtt.qos        0.1038  ← Quality of Service bất thường trong attack
-# tcp.flags       0.0900  ← SYN/RST/ACK → phân biệt DoS SYN flood
-# tcp.time_delta  0.0575  ← inter-packet time cực nhỏ = flood/DoS
-# mqtt.retain     0.0315  ← retain flag bất thường trong attack
+# ─── 8 features — MUST match the training order in model_metadata_v2.json ────
+# The scaler/model are positional: any reorder corrupts every prediction.
+# (Importance ranking is for analysis only — do NOT use it as feature order.)
 FEATURE_NAMES = [
-    "mqtt.msgid",
+    "mqtt.qos",
+    "mqtt.hdrflags",
     "tcp.len",
     "mqtt.msgtype",
-    "mqtt.hdrflags",
-    "mqtt.qos",
-    "tcp.flags",
-    "tcp.time_delta",
     "mqtt.retain",
+    "tcp.flags",
+    "mqtt.msgid",
+    "tcp.time_delta",
 ]
 
-ATTACK_LABELS = {"bruteforce", "dos", "flood", "malformed", "slowite"}
+# Raw model classes from MQTTset training
+MODEL_ATTACK_LABELS = {"bruteforce", "dos", "flood", "malformed", "slowite"}
+# Refined subtype labels emitted by the behavior layer (see refine_attack_label)
+REFINED_ATTACK_LABELS = {"flood", "malformed", "brute_force", "port_scan", "slow_drip", "c2_malware", "dos"}
+ATTACK_LABELS = MODEL_ATTACK_LABELS | REFINED_ATTACK_LABELS
 BENIGN_LABEL  = "legitimate"
 
 IP_WHITELIST = {
@@ -79,16 +77,52 @@ IP_WHITELIST = {
     "127.0.0.1",
 }
 
-BLOCK_CONFIDENCE_THRESHOLD = 0.90
-BLOCK_VOTE_THRESHOLD       = 20
-VOTE_WINDOW_SIZE           = 30
+# ─── Trusted-source pre-filter ────────────────────────────────────────────────
+# Sensor hosts h1-h8 and the broker only ever produce well-formed MQTT
+# control packets. The 6-class MQTTset model has overlapping per-packet
+# labels (the same {qos,hdr,len,msgtype,...} vector appears under both
+# "legitimate" and "dos"), so the raw model collapses normal traffic
+# into "dos". When the source IP is known-trusted AND the packet carries
+# a standard MQTT message type, short-circuit to `legitimate` without
+# invoking the model. Attackers (10.0.0.99) bypass this and hit the model.
+TRUSTED_SOURCES = {
+    "10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4",
+    "10.0.0.5", "10.0.0.6", "10.0.0.7", "10.0.0.8",
+    "10.0.0.10",  # broker
+}
+# Standard MQTT 3.1.1 control packet types (as seen in mqtt.msgtype):
+# 1=CONNECT 2=CONNACK 3=PUBLISH 4=PUBACK 5=PUBREC 6=PUBREL 7=PUBCOMP
+# 8=SUBSCRIBE 9=SUBACK 10=UNSUBSCRIBE 11=UNSUBACK 12=PINGREQ 13=PINGRESP 14=DISCONNECT
+NORMAL_MQTT_MSGTYPES = {"1","2","3","4","5","6","7","8","9","10","11","12","13","14"}
+ENABLE_TRUSTED_PREFILTER = os.environ.get("IDS_TRUSTED_PREFILTER", "1") == "1"
+_trusted_prefilter_hits = 0
+
+BLOCK_CONFIDENCE_THRESHOLD = float(os.environ.get("IDS_BLOCK_CONF",  "0.90"))
+BLOCK_VOTE_THRESHOLD       = int(  os.environ.get("IDS_BLOCK_VOTES", "20"))
+VOTE_WINDOW_SIZE           = int(  os.environ.get("IDS_VOTE_WINDOW", "30"))
 
 ip_vote_window: dict = defaultdict(lambda: deque(maxlen=VOTE_WINDOW_SIZE))
+
+# ─── Behavior-tracking window for subtype refinement ─────────────────────────
+# Each entry: (ts, mqtt_msgtype, tcp_flags, tcp_len, mqtt_msgid)
+BEHAVIOR_WINDOW_SECS = 10.0
+BEHAVIOR_MAX_HISTORY = 400
+ip_behavior: dict = defaultdict(lambda: deque(maxlen=BEHAVIOR_MAX_HISTORY))
+
 RYU_BLOCK_URL = os.environ.get("RYU_URL", "http://127.0.0.1:8080/ids/block")
 
 stats           = defaultdict(int)
 blocked_ips_log = []
 start_time      = time.time()
+
+# ─── DEBUG instrumentation ───────────────────────────────────────────────────
+# Set DEBUG_LOG_FIRST_N>0 to dump full per-prediction detail (raw vector,
+# scaled vector, full proba dict) for the first N predictions. Toggle with
+# the IDS_DEBUG_N env var (default 20).
+DEBUG_LOG_FIRST_N = int(os.environ.get("IDS_DEBUG_N", "20"))
+_dbg_pre_logged   = 0
+_dbg_cls_logged   = 0
+_dbg_pred_counter = Counter()
 
 
 # ─── Model loading ────────────────────────────────────────────────────────────
@@ -132,7 +166,99 @@ def preprocess_features(raw: dict) -> np.ndarray:
     """Convert tshark feature dict → model-ready numpy array (scaled)."""
     row = [to_num(raw.get(col, 0)) for col in FEATURE_NAMES]
     X   = np.array([row], dtype=np.float32)
-    return SCALER.transform(X)
+    Xs  = SCALER.transform(X)
+
+    # ---- DEBUG: log first N raw+scaled vectors so we can SEE what the
+    # model actually receives. Toggle via DEBUG_LOG_FIRST_N global.
+    global _dbg_pre_logged
+    if _dbg_pre_logged < DEBUG_LOG_FIRST_N:
+        _dbg_pre_logged += 1
+        LOG.info("[DBG-PRE #%d] raw   8feat = %s",
+                 _dbg_pre_logged, dict(zip(FEATURE_NAMES, row)))
+        LOG.info("[DBG-PRE #%d] scaled       = %s",
+                 _dbg_pre_logged,
+                 [round(float(v), 4) for v in Xs[0].tolist()])
+        if all(v == 0.0 for v in row):
+            LOG.warning("[DBG-PRE #%d]   ⚠ all-zero raw vector — pure TCP / no MQTT layer",
+                        _dbg_pre_logged)
+    return Xs
+
+
+# ─── Behavior-based attack subtype refinement ────────────────────────────────
+# The MQTTset 6-class model reliably says "is_attack=True" but cannot
+# distinguish port_scan / c2_malware / brute_force / slow_drip — it has no
+# class for the first two and feature set is per-packet only.
+# We track per-IP packet patterns and override the subtype label.
+#
+# MQTT message types: 1=CONNECT 2=CONNACK 3=PUBLISH 8=SUBSCRIBE 12=PINGREQ
+# TCP flag bits     : 0x02=SYN 0x10=ACK 0x18=PUSH+ACK 0x04=RST
+def refine_attack_label(model_label: str, src_ip: str, raw: dict) -> str:
+    """Return refined attack subtype based on src_ip's recent behavior.
+    Rules are evaluated in order; first match wins. Falls back to model_label
+    when no rule has high enough evidence.
+
+    NOTE: This layer is reliable for FLOOD and (when traffic is captured on
+    all ports) PORT_SCAN. Distinguishing brute_force / slow_drip / c2_malware
+    is brittle when attacks are short-lived (early blocks) or when the
+    capture filter excludes non-MQTT ports. Retraining with explicit classes
+    + aggregate features remains the proper fix.
+    """
+    if model_label == BENIGN_LABEL or not src_ip:
+        return model_label
+
+    ts        = time.time()
+    msgtype   = int(to_num(raw.get("mqtt.msgtype")))
+    tcp_flags = int(to_num(raw.get("tcp.flags")))
+    tcp_len   = int(to_num(raw.get("tcp.len")))
+    msgid     = int(to_num(raw.get("mqtt.msgid")))
+
+    hist = ip_behavior[src_ip]
+    hist.append((ts, msgtype, tcp_flags, tcp_len, msgid))
+
+    cutoff = ts - BEHAVIOR_WINDOW_SECS
+    recent = [h for h in hist if h[0] >= cutoff]
+    n      = len(recent)
+    if n < 5:
+        return model_label
+
+    span_s     = max(0.001, recent[-1][0] - recent[0][0])
+    rate       = n / span_s
+    n_syn_only = sum(1 for _, mt, fl, ln, _ in recent
+                     if mt == 0 and (fl & 0x02) and ln == 0)
+    n_connect  = sum(1 for _, mt, *_ in recent if mt == 1)
+    n_publish  = sum(1 for _, mt, *_ in recent if mt == 3)
+    n_mqtt     = sum(1 for _, mt, *_ in recent if mt > 0)
+    pub_ts     = [t for t, mt, *_ in recent if mt == 3]
+
+    # 1) flood — sustained high packet rate dominated by PUBLISH
+    if rate >= 30.0 and n_publish >= 20:
+        return "flood"
+
+    # 2) port_scan — pure SYN bursts, NO MQTT activity at all
+    #    (only fires when capture is NOT filtered to port 1883)
+    if n_syn_only >= 5 and n_mqtt == 0:
+        return "port_scan"
+
+    # 3) brute_force — rapid CONNECTs with NO successful publishes
+    if n_connect >= 5 and n_publish == 0:
+        return "brute_force"
+
+    # 4) slow_drip — sustained low-rate PUBLISHes over a meaningful span
+    if 0.4 <= rate <= 5.0 and n_publish >= 3 and span_s >= 4.0:
+        return "slow_drip"
+
+    # 5) c2_malware — model labelled it malformed, moderate periodic PUBLISHes
+    if (model_label == "malformed" and 1.0 <= rate <= 15.0
+            and n_publish >= 3 and len(pub_ts) >= 3):
+        deltas = [pub_ts[i] - pub_ts[i - 1] for i in range(1, len(pub_ts))]
+        if deltas:
+            lo = max(0.001, min(deltas))
+            hi = max(deltas)
+            if hi / lo < 5.0 and lo >= 0.05:
+                return "c2_malware"
+
+    # No rule matched — keep the model's verdict (likely flood/malformed)
+    return model_label
 
 
 # ─── Ryu integration ─────────────────────────────────────────────────────────
@@ -154,13 +280,55 @@ def block_ip_via_ryu(src_ip: str, label: str):
 # ─── Prediction logic ─────────────────────────────────────────────────────────
 
 def classify(raw_features: dict, src_ip: str = None) -> dict:
+    # ---- Trusted-source pre-filter (rule layer before the ML model) -------
+    # If the packet comes from a known sensor host or the broker AND it
+    # carries a standard MQTT control type, label it `legitimate` directly.
+    # This eliminates the per-packet ambiguity in the MQTTset training set
+    # (where the same vector appears under both legitimate and dos).
+    global _trusted_prefilter_hits
+    if ENABLE_TRUSTED_PREFILTER and src_ip in TRUSTED_SOURCES:
+        msgtype = str(raw_features.get("mqtt.msgtype", "")).strip()
+        if msgtype in NORMAL_MQTT_MSGTYPES:
+            _trusted_prefilter_hits += 1
+            if _trusted_prefilter_hits <= 5 or _trusted_prefilter_hits % 500 == 0:
+                LOG.info("[DBG-TRUST] hit #%d src=%s msgtype=%s -> legitimate",
+                         _trusted_prefilter_hits, src_ip, msgtype)
+            stats[BENIGN_LABEL] += 1
+            return {
+                "label":        BENIGN_LABEL,
+                "model_label":  BENIGN_LABEL,
+                "confidence":   1.0,
+                "is_attack":    False,
+                "attack_votes": 0,
+                "src_ip":       src_ip,
+                "timestamp":    datetime.now().isoformat(),
+                "blocked":      False,
+                "trusted_prefilter": True,
+            }
+
     X     = preprocess_features(raw_features)
     proba = MODEL.predict_proba(X)[0]
     idx   = int(np.argmax(proba))
-    label = LABEL_ENCODER.inverse_transform([idx])[0]
+    model_label = LABEL_ENCODER.inverse_transform([idx])[0]
     conf  = float(proba[idx])
 
-    is_attack = label in ATTACK_LABELS
+    # ---- DEBUG: full per-class probability distribution for first N preds.
+    global _dbg_cls_logged, _dbg_pred_counter
+    _dbg_pred_counter[model_label] += 1
+    if _dbg_cls_logged < DEBUG_LOG_FIRST_N:
+        _dbg_cls_logged += 1
+        proba_d = {LABEL_ENCODER.inverse_transform([i])[0]: round(float(p), 3)
+                   for i, p in enumerate(proba)}
+        LOG.info("[DBG-CLS #%d] src=%-15s model_label=%-12s conf=%.3f probas=%s",
+                 _dbg_cls_logged, src_ip or "-", model_label, conf, proba_d)
+    # Periodic prediction histogram (every 200 classifications)
+    if sum(_dbg_pred_counter.values()) % 200 == 0:
+        LOG.info("[DBG-DIST] cumulative model_label histogram: %s",
+                 dict(_dbg_pred_counter.most_common()))
+
+    # Anomaly decision comes from the ML model; subtype refined by behavior.
+    is_attack = model_label in MODEL_ATTACK_LABELS
+    label     = refine_attack_label(model_label, src_ip, raw_features) if is_attack else model_label
     stats[label] += 1
 
     if src_ip:
@@ -171,6 +339,7 @@ def classify(raw_features: dict, src_ip: str = None) -> dict:
 
     result = {
         "label":        label,
+        "model_label":  model_label,
         "confidence":   round(conf, 4),
         "is_attack":    is_attack,
         "attack_votes": attack_votes,

@@ -87,11 +87,29 @@ TSHARK_FIELDS = [
 # Model features (exclude ip.src and ip.dst which are routing only)
 MODEL_FEATURES = [f for f in TSHARK_FIELDS if not f.startswith("ip.")]
 
+# The 8 features the trained XGBoost model actually consumes (must match
+# Part1/model_metadata_v2.json feature_names order).
+MODEL8_FEATURES = [
+    "mqtt.qos", "mqtt.hdrflags", "tcp.len", "mqtt.msgtype",
+    "mqtt.retain", "tcp.flags", "mqtt.msgid", "tcp.time_delta",
+]
+
 # ─── Statistics ───────────────────────────────────────────────────────────────
 captured   = 0
 sent_to_api = 0
 errors     = 0
 start_time = time.time()
+
+# ─── DEBUG counters (printed periodically by stats_printer) ──────────────────
+from collections import Counter, defaultdict
+DEBUG_DUMP_FIRST_N = 0      # set via --debug-vector ; prints full per-pkt detail
+_debug_dumped     = 0
+src_ip_counter    = Counter()      # per-source-IP packet count
+msgtype_counter   = Counter()      # mqtt.msgtype histogram
+tcpflag_counter   = Counter()      # tcp.flags histogram
+api_label_counter = Counter()      # raw model_label distribution from API
+zero_vector_count = 0              # how many packets had all-zero 8-feature vec
+first_api_logged  = 0              # number of API responses fully logged
 
 
 def build_tshark_cmd(iface: str, pcap_out: str = None) -> list:
@@ -106,7 +124,8 @@ def build_tshark_cmd(iface: str, pcap_out: str = None) -> list:
     cmd = [
         "tshark",
         "-i", iface,
-        "-f", "tcp port 1883",      # BPF capture filter — MQTT only
+        "-f", "tcp port 1883",      # BPF capture filter — port 1883
+        "-Y", "mqtt",               # display filter — keep only packets carrying MQTT
         "-T", "fields",
         "-E", "separator=|",
         "-E", "quote=d",            # double-quote strings
@@ -121,8 +140,24 @@ def build_tshark_cmd(iface: str, pcap_out: str = None) -> list:
     return cmd
 
 
+def _to_num_dbg(s: str) -> float:
+    """Same parsing rule as ids_api.to_num() — used here only for debug logs."""
+    if not s or s in ("nan", "None"):
+        return 0.0
+    if s.startswith(("0x", "0X")):
+        try:
+            return float(int(s, 16))
+        except ValueError:
+            return 0.0
+    try:
+        return float(s)
+    except ValueError:
+        return 0.0
+
+
 def parse_line(line: str) -> dict:
     """Parse one tshark CSV line into a feature dict."""
+    global _debug_dumped, zero_vector_count
     line = line.strip()
     if not line:
         return {}
@@ -137,6 +172,33 @@ def parse_line(line: str) -> dict:
     for i, field in enumerate(TSHARK_FIELDS):
         val = parts[i].strip().strip('"')
         row[field] = val
+
+    # ---- Defense-in-depth: skip rows that have no MQTT layer at all.
+    # tshark's `-Y mqtt` should already do this, but if a stray TCP-only
+    # frame slips through, the model will mis-classify it as malformed/dos.
+    _mt = (row.get("mqtt.msgtype") or "").strip()
+    _hf = (row.get("mqtt.hdrflags") or "").strip()
+    if _mt in ("", "-") and _hf in ("", "-"):
+        # Not an MQTT-bearing packet — drop it silently.
+        return {}
+
+    # ---- DEBUG accounting ---------------------------------------------------
+    src_ip_counter[row.get("ip.src", "")] += 1
+    msgtype_counter[row.get("mqtt.msgtype", "") or "-"] += 1
+    tcpflag_counter[row.get("tcp.flags", "") or "-"] += 1
+
+    # Build 8-feature vector exactly like ids_api.preprocess_features()
+    vec8 = [_to_num_dbg(row.get(f, "")) for f in MODEL8_FEATURES]
+    if all(v == 0.0 for v in vec8):
+        zero_vector_count += 1
+
+    if _debug_dumped < DEBUG_DUMP_FIRST_N:
+        _debug_dumped += 1
+        LOG.info("[DBG-VEC #%d] %-15s -> %-15s  raw=%s",
+                 _debug_dumped, row.get("ip.src"), row.get("ip.dst"),
+                 {f: row.get(f, "") for f in MODEL8_FEATURES})
+        LOG.info("[DBG-VEC #%d]   model8 (qos,hdr,len,mtyp,ret,tflg,msgid,dt) = %s",
+                 _debug_dumped, vec8)
 
     return row
 
@@ -163,11 +225,20 @@ def send_to_api(api_url: str, row: dict, q: queue.Queue):
             result = resp.json()
             sent_to_api += 1
             label = result.get("label", "?")
+            mlabel = result.get("model_label", label)
             conf  = result.get("confidence", 0)
             is_atk = result.get("is_attack", False)
 
+            api_label_counter[mlabel] += 1
+
+            global first_api_logged
+            if first_api_logged < DEBUG_DUMP_FIRST_N:
+                first_api_logged += 1
+                LOG.info("[DBG-API #%d] src=%-15s model=%-12s refined=%-12s conf=%.3f is_atk=%s",
+                         first_api_logged, src_ip, mlabel, label, conf, is_atk)
+
             if is_atk and result.get("blocked"):
-                LOG.warning("⚠ ATTACK BLOCKED [%-12s] conf=%.2f src=%-15s",
+                LOG.warning("\u26a0 ATTACK BLOCKED [%-12s] conf=%.2f src=%-15s",
                             label, conf, src_ip)
             else:
                 LOG.debug("  OK     [%-12s] conf=%.2f src=%-15s",
@@ -205,6 +276,26 @@ def stats_printer():
         rate    = captured / max(elapsed, 1)
         LOG.info("Stats: captured=%d sent=%d errors=%d rate=%.1f pkt/s",
                  captured, sent_to_api, errors, rate)
+        # ---- DEBUG: per-source-IP histogram (top 12) -----------------------
+        top_src = src_ip_counter.most_common(12)
+        LOG.info("[DBG-SRC] top sources : %s",
+                 ", ".join(f"{ip}={n}" for ip, n in top_src))
+        # Specifically tell us which h1..h8 are ALIVE
+        normal_seen = {f"10.0.0.{i}" for i in range(1, 9)} & set(src_ip_counter)
+        normal_miss = {f"10.0.0.{i}" for i in range(1, 9)} - set(src_ip_counter)
+        LOG.info("[DBG-SRC] normal hosts present=%s  missing=%s",
+                 sorted(normal_seen) or "NONE", sorted(normal_miss) or "-")
+        # ---- DEBUG: msgtype + tcp-flag histograms --------------------------
+        LOG.info("[DBG-MQT] mqtt.msgtype: %s",
+                 dict(msgtype_counter.most_common(8)))
+        LOG.info("[DBG-TCP] tcp.flags  : %s",
+                 dict(tcpflag_counter.most_common(8)))
+        # ---- DEBUG: zero-vector ratio + API label distribution -------------
+        zr = (100 * zero_vector_count / captured) if captured else 0
+        LOG.info("[DBG-VEC] all-zero 8-feature vectors: %d/%d (%.1f%%)",
+                 zero_vector_count, captured, zr)
+        LOG.info("[DBG-API] model_label distribution  : %s",
+                 dict(api_label_counter.most_common()))
 
 
 def write_csv_header(csv_path: str):
@@ -318,7 +409,10 @@ if __name__ == "__main__":
                         help="Optional: save features as CSV to this path")
     parser.add_argument("--max",    type=int, default=0,
                         help="Stop after N packets (0 = unlimited)")
+    parser.add_argument("--debug-vector", type=int, default=10,
+                        help="Print full debug for first N packets (default: 10)")
     args = parser.parse_args()
+    globals()["DEBUG_DUMP_FIRST_N"] = args.debug_vector
 
     if os.geteuid() != 0:
         LOG.warning("Not running as root — tshark may fail to open interface")

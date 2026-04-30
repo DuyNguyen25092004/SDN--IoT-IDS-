@@ -1,0 +1,137 @@
+{
+  "attack": "port_scan",
+  "subnet": "10.0.0",
+  "duration_s": 7.463956356048584,
+  "hosts": {
+    "10.0.0.7": {
+      "host": "10.0.0.7",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-30T16:37:22.995721"
+    },
+    "10.0.0.1": {
+      "host": "10.0.0.1",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-30T16:37:22.996036"
+    },
+    "10.0.0.6": {
+      "host": "10.0.0.6",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-30T16:37:22.996281"
+    },
+    "10.0.0.8": {
+      "host": "10.0.0.8",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-30T16:37:22.996427"
+    },
+    "10.0.0.2": {
+      "host": "10.0.0.2",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-30T16:37:22.996524"
+    },
+    "10.0.0.3": {
+      "host": "10.0.0.3",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-30T16:37:22.996594"
+    },
+    "10.0.0.4": {
+      "host": "10.0.0.4",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-30T16:37:22.996642"
+    },
+    "10.0.0.5": {
+      "host": "10.0.0.5",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-30T16:37:22.996820"
+    },
+    "10.0.0.10": {
+      "host": "10.0.0.10",
+      "is_alive": true,
+      "open_ports": {
+        "1883": "MQTT"
+      },
+      "scan_time": "2026-04-30T16:37:23.040504"
+    },
+    "10.0.0.9": {
+      "host": "10.0.0.9",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-30T16:37:26.036863"
+    },
+    "10.0.0.11": {
+      "host": "10.0.0.11",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-30T16:37:26.037099"
+    },
+    "10.0.0.12": {
+      "host": "10.0.0.12",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-30T16:37:26.037273"
+    }
+  },
+  "mqtt_recon": {
+    "$SYS/broker/version": "mosquitto version 2.0.18",
+    "$SYS/broker/uptime": "77 seconds",
+    "$SYS/broker/clients/total": "9",
+    "$SYS/broker/clients/inactive": "0",
+    "$SYS/broker/clients/disconnected": "0",
+    "$SYS/broker/clients/active": "9",
+    "$SYS/broker/clients/connected": "9",
+    "$SYS/broker/clients/expired": "0",
+    "$SYS/broker/clients/maximum": "9",
+    "$SYS/broker/load/messages/received/1min": "320277.04",
+    "$SYS/broker/load/messages/received/5min": "143210.51",
+    "$SYS/broker/load/messages/received/15min": "54598.64",
+    "$SYS/broker/load/messages/sent/1min": "792.97",
+    "$SYS/broker/load/messages/sent/5min": "234.56",
+    "$SYS/broker/load/messages/sent/15min": "84.08",
+    "$SYS/broker/load/publish/dropped/1min": "0.00",
+    "$SYS/broker/load/publish/dropped/5min": "0.00",
+    "$SYS/broker/load/publish/dropped/15min": "0.00",
+    "$SYS/broker/load/publish/received/1min": "319761.55",
+    "$SYS/broker/load/publish/received/5min": "143056.09",
+    "$SYS/broker/load/publish/received/15min": "54543.19",
+    "$SYS/broker/load/publish/sent/1min": "500.12",
+    "$SYS/broker/load/publish/sent/5min": "147.54",
+    "$SYS/broker/load/publish/sent/15min": "52.87",
+    "$SYS/broker/load/bytes/received/1min": "5773776.09",
+    "$SYS/broker/load/bytes/received/5min": "2580483.43",
+    "$SYS/broker/load/bytes/received/15min": "983747.08",
+    "$SYS/broker/load/bytes/sent/1min": "40200.64",
+    "$SYS/broker/load/bytes/sent/5min": "12037.42",
+    "$SYS/broker/load/bytes/sent/15min": "4323.74",
+    "$SYS/broker/load/sockets/1min": "58.73",
+    "$SYS/broker/load/sockets/5min": "16.00",
+    "$SYS/broker/load/sockets/15min": "5.64",
+    "$SYS/broker/load/connections/1min": "57.95",
+    "$SYS/broker/load/connections/5min": "15.81",
+    "$SYS/broker/load/connections/15min": "5.57",
+    "$SYS/broker/messages/stored": "53",
+    "$SYS/broker/messages/received": "875884",
+    "$SYS/broker/messages/sent": "1337",
+    "$SYS/broker/store/messages/count": "53",
+    "$SYS/broker/store/messages/bytes": "285",
+    "$SYS/broker/subscriptions/count": "3",
+    "$SYS/broker/shared_subscriptions/count": "0",
+    "$SYS/broker/retained messages/count": "53",
+    "$SYS/broker/heap/current": "53688",
+    "$SYS/broker/heap/maximum": "55416",
+    "$SYS/broker/publish/messages/dropped": "0",
+    "$SYS/broker/publish/messages/received": "875020",
+    "$SYS/broker/publish/messages/sent": "853",
+    "$SYS/broker/publish/bytes/received": "2649670",
+    "$SYS/broker/publish/bytes/sent": "51387",
+    "$SYS/broker/bytes/received": "15781083",
+    "$SYS/broker/bytes/sent": "68774"
+  },
+  "timestamp": "2026-04-30T16:37:30.446172"
+}

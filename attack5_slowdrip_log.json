@@ -1,0 +1,103 @@
+{
+  "attack": "slow_drip_exfil",
+  "target": "10.0.0.10:1883",
+  "topic": "home/sensor/temp",
+  "total_chunks": 13,
+  "sent": 13,
+  "duration_s": 14.208868980407715,
+  "avg_rate_msg_s": 0.9149215196456103,
+  "chunks_log": [
+    {
+      "seq": 0,
+      "chunk_size": 32,
+      "payload_size": 232,
+      "topic": "home/sensor/temp",
+      "timestamp": "2026-04-30T16:49:35.838421"
+    },
+    {
+      "seq": 1,
+      "chunk_size": 32,
+      "payload_size": 236,
+      "topic": "home/sensor/temp",
+      "timestamp": "2026-04-30T16:49:37.020401"
+    },
+    {
+      "seq": 2,
+      "chunk_size": 32,
+      "payload_size": 234,
+      "topic": "home/sensor/temp",
+      "timestamp": "2026-04-30T16:49:37.834058"
+    },
+    {
+      "seq": 3,
+      "chunk_size": 32,
+      "payload_size": 233,
+      "topic": "home/sensor/temp",
+      "timestamp": "2026-04-30T16:49:38.797337"
+    },
+    {
+      "seq": 4,
+      "chunk_size": 32,
+      "payload_size": 232,
+      "topic": "home/sensor/temp",
+      "timestamp": "2026-04-30T16:49:39.977391"
+    },
+    {
+      "seq": 5,
+      "chunk_size": 32,
+      "payload_size": 236,
+      "topic": "home/sensor/temp",
+      "timestamp": "2026-04-30T16:49:41.040708"
+    },
+    {
+      "seq": 6,
+      "chunk_size": 32,
+      "payload_size": 234,
+      "topic": "home/sensor/temp",
+      "timestamp": "2026-04-30T16:49:42.248861"
+    },
+    {
+      "seq": 7,
+      "chunk_size": 32,
+      "payload_size": 233,
+      "topic": "home/sensor/temp",
+      "timestamp": "2026-04-30T16:49:43.077106"
+    },
+    {
+      "seq": 8,
+      "chunk_size": 32,
+      "payload_size": 232,
+      "topic": "home/sensor/temp",
+      "timestamp": "2026-04-30T16:49:44.063527"
+    },
+    {
+      "seq": 9,
+      "chunk_size": 32,
+      "payload_size": 236,
+      "topic": "home/sensor/temp",
+      "timestamp": "2026-04-30T16:49:44.869288"
+    },
+    {
+      "seq": 10,
+      "chunk_size": 32,
+      "payload_size": 236,
+      "topic": "home/sensor/temp",
+      "timestamp": "2026-04-30T16:49:46.060772"
+    },
+    {
+      "seq": 11,
+      "chunk_size": 32,
+      "payload_size": 235,
+      "topic": "home/sensor/temp",
+      "timestamp": "2026-04-30T16:49:47.206229"
+    },
+    {
+      "seq": 12,
+      "chunk_size": 12,
+      "payload_size": 214,
+      "topic": "home/sensor/temp",
+      "timestamp": "2026-04-30T16:49:48.044996"
+    }
+  ],
+  "timestamp": "2026-04-30T16:49:50.047506"
+}
