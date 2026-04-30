@@ -1,148 +1,265 @@
-# SDN IoT IDS — Người 1 (Network Engineer) Implementation
+# SDN IoT IDS — Run Guide
 
-## Project Structure
+Full setup and execution guide for the 4-terminal demo.
 
-```
-sdn-iot-ids/
-├── topology.py          Mininet topology (6 publishers, 2 subscribers, broker, attacker)
-├── ryu_controller.py    Ryu app: L2 switch + OVS port mirror + REST flow enforcer
-├── ids_api.py           Flask ML API wrapping best_model_xgb.pkl
-├── traffic_capture.py   tshark → 33 MQTTset features → IDS API
-├── normal_traffic.py    Legitimate paho-mqtt publisher/subscriber traffic
-└── run_all.sh           Master launch script
-```
+---
 
-## Network Topology
+## Prerequisites
 
-```
- h1 (10.0.0.1)  ─┐                        ┌─ h7 (10.0.0.7)  Subscriber
- h2 (10.0.0.2)  ─┤                        ├─ h8 (10.0.0.8)  Subscriber
- h3 (10.0.0.3)  ─┤                        │
- h4 (10.0.0.4)  ─┼──── s1 (OVS) ──────────┤
- h5 (10.0.0.5)  ─┤   OpenFlow 1.3         │
- h6 (10.0.0.6)  ─┘   port 11 = mirror     ├─ hbroker   (10.0.0.10) Mosquitto
-                                           └─ hattacker (10.0.0.99) Attack scripts
+Install system-wide dependencies (needed by Mininet hosts):
 
- Ryu Controller ← port 6633 (OpenFlow)
- Ryu REST API   ← port 8080 /ids/block /ids/unblock /ids/rules
-
- IDS Pipeline:
- tshark(s1) → 33 features → POST /predict → XGBoost → label
-                                                      ↓ if attack
-                                           POST /ids/block → Ryu DROP rule
-```
-
-## Setup
-
-### 1. Get model files
-Download from https://github.com/DuyNguyen25092004/SDN--IoT-IDS-
-Extract `all_outputs.zip` and place these files in the project directory:
-- `best_model_xgb.pkl`
-- `scaler.pkl`
-- `label_encoder.pkl`
-- `feature_encoders.pkl`
-
-### 2. Activate environment
 ```bash
+sudo pip3 install paho-mqtt --break-system-packages
+```
+
+Install venv dependencies (for IDS API and capture):
+
+```bash
+cd ~/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/Part2
+source venv/bin/activate
+pip install flask joblib numpy requests xgboost scikit-learn
+```
+
+---
+
+## Terminal Layout
+
+| Terminal | Role |
+|----------|------|
+| **T1** | Ryu SDN Controller |
+| **T2** | IDS API (XGBoost classifier) |
+| **T3** | Traffic Capture (tshark → API) |
+| **T4** | Mininet topology + attack scripts |
+
+---
+
+## T1 — Ryu Controller
+
+```bash
+cd ~/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/Part2
 source ~/ryu-env-py39/bin/activate
+ryu-manager ryu_controller.py --observe-links --wsapi-port 8080
 ```
 
-### 3. Run everything
+Wait until you see:
+```
+Switch connected: dpid=0000000000000001
+```
+
+---
+
+## T2 — IDS API
+
 ```bash
-chmod +x run_all.sh
-./run_all.sh
+cd ~/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/Part2
+source venv/bin/activate
+python3 ids_api.py \
+    --model ../Part1/best_model_xgb_v2.pkl \
+    --scaler ../Part1/scaler_v2.pkl \
+    --encoder ../Part1/label_encoder_v2.pkl
 ```
 
-Or manually, in separate terminals:
+> **Note:** Use the `venv` virtualenv here, NOT `ryu-env-py39`. The pkl files are `best_model_xgb_v2.pkl`, `scaler_v2.pkl`, and `label_encoder_v2.pkl` (v2 versions).
 
-**Terminal 1 — Ryu Controller:**
+Wait until you see:
+```
+Running on http://127.0.0.1:5000
+```
+
+---
+
+## T3 — Traffic Capture
+
 ```bash
-source ~/ryu-env-py39/bin/activate
-ryu-manager ryu_controller.py --wsapi-port 8080
+cd ~/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/Part2
+source venv/bin/activate
+
+# Bring up the OVS internal port
+sudo ip link set s1 up
+
+# Set up OVS mirror (copy all switch traffic to s1 for tshark)
+sudo ovs-vsctl -- set Bridge s1 mirrors=@m \
+  -- --id=@s1 get Port s1 \
+  -- --id=@m create Mirror name=ids-mirror \
+     select-all=true \
+     output-port=@s1
+
+# Start capture
+sudo python3 traffic_capture.py --iface s1 --api http://127.0.0.1:5000
 ```
 
-**Terminal 2 — IDS API:**
+> **Note:** If the mirror already exists from a previous run, `ovs-vsctl` will error — that's fine, just run the capture directly.
+
+---
+
+## T4 — Mininet Topology
+
 ```bash
-source ~/ryu-env-py39/bin/activate
-python ids_api.py --model best_model_xgb.pkl --scaler scaler.pkl \
-                  --encoder label_encoder.pkl --feat-encoder feature_encoders.pkl
+cd ~/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/Part2
+sudo python3 topology.py
 ```
 
-**Terminal 3 — Traffic Capture:**
+### Inside Mininet CLI
+
+**Start the MQTT broker on hbroker:**
+```
+mininet> hbroker bash -c "echo -e 'listener 1883 0.0.0.0\nallow_anonymous true' > /tmp/mosquitto.conf && mosquitto -d -c /tmp/mosquitto.conf"
+```
+
+**Verify broker is listening on all interfaces:**
+```
+mininet> hbroker netstat -tlnp | grep 1883
+# Should show: 0.0.0.0:1883
+```
+
+**Test connectivity:**
+```
+mininet> hattacker mosquitto_pub -h 10.0.0.10 -t test -m hello
+```
+
+---
+
+## Running the Attacks
+
+### Attack 1 — MQTT Flood (DoS)
+
+```
+mininet> hattacker python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/part3/attack1_mqtt_flood.py --host 10.0.0.10 --port 1883 --threads 10 --count 5000
+```
+
+Expected IDS output: `flood` / `malformed` detected at 93–98% confidence, blocked.
+
+---
+
+### Attack 2 — C2 Malware
+
+Clear any existing block first (see "Unblocking" section below), then:
+
+```
+mininet> hattacker python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/part3/attack2_c2_malware.py --mode bot --host 10.0.0.10 &
+mininet> hattacker python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/part3/attack2_c2_malware.py --mode server --host 10.0.0.10
+```
+
+Expected IDS output: `malformed` / `dos` at 91–100% confidence, blocked.
+
+---
+
+### Attack 3 — Brute Force
+
+```
+mininet> hattacker python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/part3/attack3_brute_force.py --host 10.0.0.10 --delay 0.1
+```
+
+Expected IDS output: `malformed` at 90–100% confidence, blocked.
+
+---
+
+### Attack 4 — Port Scan
+
+```
+mininet> hattacker python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/part3/attack4_port_scan.py --subnet 10.0.0 --start 1 --end 10 --mqtt-broker 10.0.0.10
+```
+
+Expected IDS output: `malformed` at 100% confidence, blocked.
+
+---
+
+### Attack 5 — Slow Drip Exfiltration
+
+This attack mimics normal traffic and must be run while `10.0.0.99` is whitelisted in the IDS (otherwise it gets blocked before connecting).
+
+**Step 1 — Whitelist hattacker in IDS:**
 ```bash
-sudo python3 traffic_capture.py --iface s1 --api http://127.0.0.1:5000 \
-             --csv /tmp/capture.csv --pcap /tmp/capture.pcap
+curl -s -X POST http://127.0.0.1:5000/whitelist/add \
+  -H "Content-Type: application/json" \
+  -d '{"ip": "10.0.0.99"}'
 ```
 
-**Terminal 4 — Mininet:**
+**Step 2 — Unblock via Ryu:**
 ```bash
-sudo mn --custom topology.py --topo iot \
-        --controller remote,ip=127.0.0.1,port=6633 \
-        --switch ovsk,protocols=OpenFlow13 --link tc --mac
+curl -s -X POST http://127.0.0.1:8080/ids/unblock \
+  -H "Content-Type: application/json" \
+  -d '{"ip": "10.0.0.99"}'
 ```
 
-## Using the Mininet CLI
-
+**Step 3 — Run the attack:**
 ```
-# Start normal publisher traffic on h1
-mn> h1 python3 normal_traffic.py publisher --broker 10.0.0.10 --id h1 --topic sensors/h1 &
-
-# Start subscriber on h7
-mn> h7 python3 normal_traffic.py subscriber --broker 10.0.0.10 --id h7 --topic sensors/# &
-
-# Connectivity test
-mn> pingall
-
-# Check Ryu blocked IPs
-mn> sh curl -s http://127.0.0.1:8080/ids/rules
-
-# Manually block an IP (test)
-mn> sh curl -s -X POST http://127.0.0.1:8080/ids/block -H "Content-Type: application/json" -d '{"ip":"10.0.0.99"}'
-
-# IDS stats
-mn> sh curl -s http://127.0.0.1:5000/stats
+mininet> hattacker python3 /home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/part3/attack5_slow_drip.py --host 10.0.0.10 --rate 0.5
 ```
 
-## For Người 3 (Attack Simulation)
-
-Run attack scripts from `hattacker` inside Mininet:
+**Step 4 — Restore normal IDS operation after attack finishes:**
+```bash
+curl -s -X POST http://127.0.0.1:5000/whitelist/remove \
+  -H "Content-Type: application/json" \
+  -d '{"ip": "10.0.0.99"}'
 ```
-mn> hattacker python3 attack_dos.py --target 10.0.0.10 --rate 1000 &
-mn> hattacker python3 attack_brute.py --target 10.0.0.10 &
+
+Expected IDS output: `slowite` at ~47% confidence (low by design — hardest attack to detect).
+
+---
+
+## Unblocking Between Attacks
+
+After each attack, `10.0.0.99` (hattacker) gets blocked. Unblock before running the next attack:
+
+```bash
+# Remove block via Ryu (clears both OVS flow rule AND Ryu's internal state)
+curl -s -X POST http://127.0.0.1:8080/ids/unblock \
+  -H "Content-Type: application/json" \
+  -d '{"ip": "10.0.0.99"}'
 ```
 
-The IDS pipeline will detect and Ryu will auto-block `10.0.0.99`.
+Verify no block rule remains:
+```bash
+sudo ovs-ofctl -O OpenFlow13 dump-flows s1 | grep 10.0.0.99
+```
 
-## MQTTset Feature Mapping
+---
 
-The 33 features captured by tshark match exactly what `best_model_xgb.pkl` expects:
+## Broker Restart (if broker dies)
 
-| Feature | Source |
-|---------|--------|
-| tcp.flags, tcp.time_delta, tcp.len | TCP layer |
-| mqtt.conack.* | CONNACK packets |
-| mqtt.conflag.* | CONNECT flags |
-| mqtt.hdrflags, mqtt.kalive, mqtt.len | MQTT fixed header |
-| mqtt.msg, mqtt.msgid, mqtt.msgtype | Message fields |
-| mqtt.qos, mqtt.retain, mqtt.dupflag | QoS/delivery flags |
-| mqtt.sub.qos, mqtt.suback.qos | Subscribe fields |
-| mqtt.will* | Will message fields |
+If attacks fail with `Connection refused` or `TimeoutError`:
 
-## Detection Classes
+```
+mininet> hbroker bash -c "pkill mosquitto; sleep 1; echo -e 'listener 1883 0.0.0.0\nallow_anonymous true' > /tmp/mosquitto.conf && mosquitto -d -c /tmp/mosquitto.conf"
+```
 
-The model classifies traffic into 6 classes (from MQTTset):
-- `legitimate` → allow
-- `bruteforce` → block src IP
-- `dos` → block src IP  
-- `flood` → block src IP
-- `malformed` → block src IP
-- `slowite` → block src IP
+---
 
-## Logs
+## IDS Stats & Monitoring
 
-All logs written to `/tmp/sdn-iot-ids-logs/`:
-- `ryu.log` — Ryu controller events
-- `ids_api.log` — ML predictions
-- `capture.log` — tshark capture stats
-- `capture_YYYYMMDD_HHMMSS.csv` — raw features (for Người 2 evaluation)
-- `capture_YYYYMMDD_HHMMSS.pcap` — raw packets (for Người 2 evaluation)
+```bash
+# View detection statistics
+curl -s http://127.0.0.1:5000/stats | python3 -m json.tool
+
+# View health + loaded model info
+curl -s http://127.0.0.1:5000/health | python3 -m json.tool
+
+# View current whitelist
+curl -s http://127.0.0.1:5000/whitelist | python3 -m json.tool
+
+# View active Ryu block rules
+curl -s http://127.0.0.1:8080/ids/rules | python3 -m json.tool
+```
+
+---
+
+## Attack Results Summary
+
+| # | Attack | IDS Label | Confidence | Blocked |
+|---|--------|-----------|------------|---------|
+| 1 | MQTT Flood | `flood` / `malformed` | 93–98% | ✅ Yes |
+| 2 | C2 Malware | `malformed` / `dos` | 91–100% | ✅ Yes |
+| 3 | Brute Force | `malformed` | 90–100% | ✅ Yes |
+| 4 | Port Scan | `malformed` | 100% | ✅ Yes |
+| 5 | Slow Drip | `slowite` | ~47% | ⚠ Low confidence (by design) |
+
+---
+
+## Host IP Reference
+
+| Host | IP |
+|------|----|
+| h1–h8 | 10.0.0.1 – 10.0.0.8 |
+| hbroker | 10.0.0.10 |
+| hattacker | 10.0.0.99 |
