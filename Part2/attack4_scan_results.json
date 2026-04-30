@@ -1,0 +1,123 @@
+{
+  "attack": "port_scan",
+  "subnet": "10.0.0",
+  "duration_s": 10.386991500854492,
+  "hosts": {
+    "10.0.0.9": {
+      "host": "10.0.0.9",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-30T11:59:49.000524"
+    },
+    "10.0.0.7": {
+      "host": "10.0.0.7",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-30T11:59:49.434528"
+    },
+    "10.0.0.8": {
+      "host": "10.0.0.8",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-30T11:59:49.434652"
+    },
+    "10.0.0.4": {
+      "host": "10.0.0.4",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-30T11:59:49.434697"
+    },
+    "10.0.0.6": {
+      "host": "10.0.0.6",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-30T11:59:49.434735"
+    },
+    "10.0.0.3": {
+      "host": "10.0.0.3",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-30T11:59:49.434774"
+    },
+    "10.0.0.1": {
+      "host": "10.0.0.1",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-30T11:59:49.434850"
+    },
+    "10.0.0.5": {
+      "host": "10.0.0.5",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-30T11:59:49.435065"
+    },
+    "10.0.0.2": {
+      "host": "10.0.0.2",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-30T11:59:49.435203"
+    },
+    "10.0.0.10": {
+      "host": "10.0.0.10",
+      "is_alive": false,
+      "open_ports": {},
+      "scan_time": "2026-04-30T11:59:49.435290"
+    }
+  },
+  "mqtt_recon": {
+    "$SYS/broker/version": "mosquitto version 2.0.18",
+    "$SYS/broker/uptime": "385 seconds",
+    "$SYS/broker/clients/total": "1",
+    "$SYS/broker/clients/inactive": "0",
+    "$SYS/broker/clients/disconnected": "0",
+    "$SYS/broker/clients/active": "1",
+    "$SYS/broker/clients/connected": "1",
+    "$SYS/broker/clients/expired": "0",
+    "$SYS/broker/clients/maximum": "1",
+    "$SYS/broker/load/messages/received/1min": "100.01",
+    "$SYS/broker/load/messages/received/5min": "84.20",
+    "$SYS/broker/load/messages/received/15min": "35.88",
+    "$SYS/broker/load/messages/sent/1min": "103.02",
+    "$SYS/broker/load/messages/sent/5min": "53.75",
+    "$SYS/broker/load/messages/sent/15min": "21.95",
+    "$SYS/broker/load/publish/dropped/1min": "0.00",
+    "$SYS/broker/load/publish/dropped/5min": "0.00",
+    "$SYS/broker/load/publish/dropped/15min": "0.00",
+    "$SYS/broker/load/publish/received/1min": "0.06",
+    "$SYS/broker/load/publish/received/5min": "0.38",
+    "$SYS/broker/load/publish/received/15min": "0.33",
+    "$SYS/broker/load/publish/sent/1min": "52.08",
+    "$SYS/broker/load/publish/sent/5min": "11.19",
+    "$SYS/broker/load/publish/sent/15min": "3.78",
+    "$SYS/broker/load/bytes/received/1min": "2294.21",
+    "$SYS/broker/load/bytes/received/5min": "1952.70",
+    "$SYS/broker/load/bytes/received/15min": "836.60",
+    "$SYS/broker/load/bytes/sent/1min": "2263.23",
+    "$SYS/broker/load/bytes/sent/5min": "612.99",
+    "$SYS/broker/load/bytes/sent/15min": "222.13",
+    "$SYS/broker/load/sockets/1min": "49.98",
+    "$SYS/broker/load/sockets/5min": "41.83",
+    "$SYS/broker/load/sockets/15min": "17.77",
+    "$SYS/broker/load/connections/1min": "49.98",
+    "$SYS/broker/load/connections/5min": "41.83",
+    "$SYS/broker/load/connections/15min": "17.77",
+    "$SYS/broker/messages/stored": "53",
+    "$SYS/broker/messages/received": "609",
+    "$SYS/broker/messages/sent": "393",
+    "$SYS/broker/store/messages/count": "53",
+    "$SYS/broker/store/messages/bytes": "224",
+    "$SYS/broker/subscriptions/count": "1",
+    "$SYS/broker/shared_subscriptions/count": "0",
+    "$SYS/broker/retained messages/count": "53",
+    "$SYS/broker/heap/current": "44936",
+    "$SYS/broker/heap/maximum": "46808",
+    "$SYS/broker/publish/messages/dropped": "0",
+    "$SYS/broker/publish/messages/received": "5",
+    "$SYS/broker/publish/messages/sent": "85",
+    "$SYS/broker/publish/bytes/received": "316",
+    "$SYS/broker/publish/bytes/sent": "383",
+    "$SYS/broker/bytes/received": "14254",
+    "$SYS/broker/bytes/sent": "4741"
+  },
+  "timestamp": "2026-04-30T11:59:54.816252"
+}

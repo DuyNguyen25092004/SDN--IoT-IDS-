@@ -1,0 +1,2 @@
+attack_type,target,total_sent,total_error,duration_s,rate_msg_s,timestamp
+mqtt_flood,10.0.0.10:1883,0,0,0.01,0.0,2026-04-30T11:43:28.824089
