@@ -134,7 +134,7 @@ def run():
     # broker.cmd("mosquitto -d -p 1883 -v > /tmp/mosquitto.log 2>&1")
     # broker.cmd("mosquitto -p 1883 --listener 1883 0.0.0.0 --allow-anonymous true > /tmp/mosquitto.log 2>&1 &")
     # time.sleep(1)
-    broker.cmd("echo 'listener 1883 0.0.0.0\nallow_anonymous true' > /tmp/mosquitto.conf")
+    broker.cmd("mosquitto_passwd -b -c /etc/mosquitto/passwd admin admin")
     broker.cmd("mosquitto -c /tmp/mosquitto.conf > /tmp/mosquitto.log 2>&1 &")
     time.sleep(1)
     # ── Set up default routes so all hosts can reach broker ──────────────────
