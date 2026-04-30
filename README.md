@@ -45,10 +45,11 @@ python ids_api.py --model best_model_xgb.pkl --scaler scaler.pkl \
 **Terminal 3 — Traffic Capture:**
 ### Run sau khi chayj Mininet
 ```bash
+sudo ip link set s1 up
 sudo python3 ~/sdn/Final_project/Part2/traffic_capture.py \
   --iface s1-eth1 \
   --api http://127.0.0.1:5000 \
-  --csv /tmp/sdn-iot-ids-logs/capture.csv
+  --csv capture.csv
 ```
 
 **Terminal 4 — Mininet:**
@@ -73,11 +74,11 @@ mininet> hbroker mosquitto -p 1883 --listener 1883 0.0.0.0 --allow-anonymous tru
 ### Chạy tiếp theo trong Mininet CLI
 Bước 1 — Normal traffic (chạy ngầm, redirect log)
 ```bash
-mininet> h1 python3 normal_traffic.py publisher --broker 10.0.0.10 --id h1 --topic sensors/h1 &
-mininet> h2 python3 normal_traffic.py publisher --broker 10.0.0.10 --id h2 --topic sensors/h2 &
-mininet> h3 python3 normal_traffic.py publisher --broker 10.0.0.10 --id h3 --topic sensors/h3 &
-mininet> h7 python3 normal_traffic.py subscriber --broker 10.0.0.10 --id h7 --topic sensors/# &
-mininet> h8 python3 normal_traffic.py subscriber --broker 10.0.0.10 --id h8 --topic sensors/# &
+h1 python3 normal_traffic.py publisher --broker 10.0.0.10 --id h1 --topic sensors/h1 &
+h2 python3 normal_traffic.py publisher --broker 10.0.0.10 --id h2 --topic sensors/h2 &
+h3 python3 normal_traffic.py publisher --broker 10.0.0.10 --id h3 --topic sensors/h3 &
+h7 python3 normal_traffic.py subscriber --broker 10.0.0.10 --id h7 --topic sensors/# &
+h8 python3 normal_traffic.py subscriber --broker 10.0.0.10 --id h8 --topic sensors/# &
 ```
 ### Chạy từng attack từ mininet
 
