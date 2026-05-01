@@ -4,359 +4,359 @@
   "topic": "sensor/data",
   "total_chunks": 50,
   "sent": 50,
-  "duration_s": 92.31490874290466,
-  "avg_rate_msg_s": 0.541624323534231,
+  "duration_s": 96.0529477596283,
+  "avg_rate_msg_s": 0.5205462317005053,
   "chunks_log": [
     {
       "seq": 0,
       "chunk_size": 8,
-      "payload_size": 208,
+      "payload_size": 207,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:19:24.203547"
+      "timestamp": "2026-05-01T09:13:21.057475"
     },
     {
       "seq": 1,
       "chunk_size": 8,
       "payload_size": 212,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:19:25.897467"
+      "timestamp": "2026-05-01T09:13:22.861801"
     },
     {
       "seq": 2,
       "chunk_size": 8,
-      "payload_size": 210,
+      "payload_size": 209,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:19:27.472242"
+      "timestamp": "2026-05-01T09:13:24.901170"
     },
     {
       "seq": 3,
       "chunk_size": 8,
       "payload_size": 209,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:19:29.151677"
+      "timestamp": "2026-05-01T09:13:26.667921"
     },
     {
       "seq": 4,
       "chunk_size": 8,
       "payload_size": 208,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:19:30.704293"
+      "timestamp": "2026-05-01T09:13:28.417651"
     },
     {
       "seq": 5,
       "chunk_size": 8,
-      "payload_size": 211,
+      "payload_size": 212,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:19:32.381111"
+      "timestamp": "2026-05-01T09:13:30.627950"
     },
     {
       "seq": 6,
       "chunk_size": 8,
       "payload_size": 210,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:19:33.915617"
+      "timestamp": "2026-05-01T09:13:32.527575"
     },
     {
       "seq": 7,
       "chunk_size": 8,
       "payload_size": 209,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:19:35.383028"
+      "timestamp": "2026-05-01T09:13:34.522277"
     },
     {
       "seq": 8,
       "chunk_size": 8,
-      "payload_size": 207,
+      "payload_size": 208,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:19:36.846902"
+      "timestamp": "2026-05-01T09:13:36.323211"
     },
     {
       "seq": 9,
       "chunk_size": 8,
       "payload_size": 212,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:19:38.982743"
+      "timestamp": "2026-05-01T09:13:37.821494"
     },
     {
       "seq": 10,
       "chunk_size": 8,
       "payload_size": 212,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:19:40.602087"
+      "timestamp": "2026-05-01T09:13:40.183010"
     },
     {
       "seq": 11,
       "chunk_size": 8,
-      "payload_size": 210,
+      "payload_size": 211,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:19:43.103472"
+      "timestamp": "2026-05-01T09:13:41.790697"
     },
     {
       "seq": 12,
       "chunk_size": 8,
-      "payload_size": 209,
+      "payload_size": 210,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:19:45.417456"
+      "timestamp": "2026-05-01T09:13:43.623158"
     },
     {
       "seq": 13,
       "chunk_size": 8,
       "payload_size": 214,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:19:47.040516"
+      "timestamp": "2026-05-01T09:13:45.433791"
     },
     {
       "seq": 14,
       "chunk_size": 8,
       "payload_size": 212,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:19:48.548256"
+      "timestamp": "2026-05-01T09:13:47.258272"
     },
     {
       "seq": 15,
       "chunk_size": 8,
       "payload_size": 211,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:19:49.953272"
+      "timestamp": "2026-05-01T09:13:49.564504"
     },
     {
       "seq": 16,
       "chunk_size": 8,
-      "payload_size": 209,
+      "payload_size": 210,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:19:52.030324"
+      "timestamp": "2026-05-01T09:13:51.494750"
     },
     {
       "seq": 17,
       "chunk_size": 8,
       "payload_size": 214,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:19:54.148407"
+      "timestamp": "2026-05-01T09:13:52.945482"
     },
     {
       "seq": 18,
       "chunk_size": 8,
       "payload_size": 212,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:19:55.847360"
+      "timestamp": "2026-05-01T09:13:54.950423"
     },
     {
       "seq": 19,
       "chunk_size": 8,
       "payload_size": 211,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:19:57.278161"
+      "timestamp": "2026-05-01T09:13:56.700369"
     },
     {
       "seq": 20,
       "chunk_size": 8,
       "payload_size": 210,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:19:59.298677"
+      "timestamp": "2026-05-01T09:13:58.389238"
     },
     {
       "seq": 21,
       "chunk_size": 8,
       "payload_size": 214,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:01.041022"
+      "timestamp": "2026-05-01T09:14:00.451962"
     },
     {
       "seq": 22,
       "chunk_size": 8,
-      "payload_size": 212,
+      "payload_size": 211,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:02.640605"
+      "timestamp": "2026-05-01T09:14:02.464754"
     },
     {
       "seq": 23,
       "chunk_size": 8,
       "payload_size": 210,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:04.217652"
+      "timestamp": "2026-05-01T09:14:03.953595"
     },
     {
       "seq": 24,
       "chunk_size": 8,
       "payload_size": 210,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:05.887354"
+      "timestamp": "2026-05-01T09:14:06.325195"
     },
     {
       "seq": 25,
       "chunk_size": 8,
       "payload_size": 214,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:07.370529"
+      "timestamp": "2026-05-01T09:14:07.932874"
     },
     {
       "seq": 26,
       "chunk_size": 8,
-      "payload_size": 212,
+      "payload_size": 211,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:08.866314"
+      "timestamp": "2026-05-01T09:14:10.209701"
     },
     {
       "seq": 27,
       "chunk_size": 8,
       "payload_size": 211,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:11.034764"
+      "timestamp": "2026-05-01T09:14:11.753787"
     },
     {
       "seq": 28,
       "chunk_size": 8,
       "payload_size": 210,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:12.451146"
+      "timestamp": "2026-05-01T09:14:13.443579"
     },
     {
       "seq": 29,
       "chunk_size": 8,
       "payload_size": 214,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:14.700340"
+      "timestamp": "2026-05-01T09:14:15.102076"
     },
     {
       "seq": 30,
       "chunk_size": 8,
       "payload_size": 212,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:16.192917"
+      "timestamp": "2026-05-01T09:14:16.806775"
     },
     {
       "seq": 31,
       "chunk_size": 8,
       "payload_size": 211,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:17.820591"
+      "timestamp": "2026-05-01T09:14:19.141358"
     },
     {
       "seq": 32,
       "chunk_size": 8,
-      "payload_size": 209,
+      "payload_size": 210,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:19.461149"
+      "timestamp": "2026-05-01T09:14:20.544251"
     },
     {
       "seq": 33,
       "chunk_size": 8,
       "payload_size": 214,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:21.523049"
+      "timestamp": "2026-05-01T09:14:22.126995"
     },
     {
       "seq": 34,
       "chunk_size": 8,
       "payload_size": 212,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:23.124194"
+      "timestamp": "2026-05-01T09:14:24.403925"
     },
     {
       "seq": 35,
       "chunk_size": 8,
       "payload_size": 211,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:24.710879"
+      "timestamp": "2026-05-01T09:14:25.967351"
     },
     {
       "seq": 36,
       "chunk_size": 8,
       "payload_size": 210,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:26.866294"
+      "timestamp": "2026-05-01T09:14:27.808473"
     },
     {
       "seq": 37,
       "chunk_size": 8,
       "payload_size": 214,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:28.549437"
+      "timestamp": "2026-05-01T09:14:30.057510"
     },
     {
       "seq": 38,
       "chunk_size": 8,
-      "payload_size": 212,
+      "payload_size": 211,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:30.841219"
+      "timestamp": "2026-05-01T09:14:32.415952"
     },
     {
       "seq": 39,
       "chunk_size": 8,
       "payload_size": 211,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:33.160063"
+      "timestamp": "2026-05-01T09:14:34.369114"
     },
     {
       "seq": 40,
       "chunk_size": 8,
       "payload_size": 210,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:35.759622"
+      "timestamp": "2026-05-01T09:14:36.236412"
     },
     {
       "seq": 41,
       "chunk_size": 8,
       "payload_size": 214,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:37.674292"
+      "timestamp": "2026-05-01T09:14:38.400332"
     },
     {
       "seq": 42,
       "chunk_size": 8,
       "payload_size": 212,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:39.347935"
+      "timestamp": "2026-05-01T09:14:40.858183"
     },
     {
       "seq": 43,
       "chunk_size": 8,
       "payload_size": 211,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:41.942983"
+      "timestamp": "2026-05-01T09:14:42.600604"
     },
     {
       "seq": 44,
       "chunk_size": 8,
       "payload_size": 210,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:44.103686"
+      "timestamp": "2026-05-01T09:14:44.450452"
     },
     {
       "seq": 45,
       "chunk_size": 8,
       "payload_size": 214,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:46.525588"
+      "timestamp": "2026-05-01T09:14:46.415103"
     },
     {
       "seq": 46,
       "chunk_size": 8,
       "payload_size": 212,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:48.369558"
+      "timestamp": "2026-05-01T09:14:48.933616"
     },
     {
       "seq": 47,
       "chunk_size": 8,
       "payload_size": 211,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:50.013504"
+      "timestamp": "2026-05-01T09:14:51.057612"
     },
     {
       "seq": 48,
       "chunk_size": 8,
       "payload_size": 210,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:51.593513"
+      "timestamp": "2026-05-01T09:14:53.113093"
     },
     {
       "seq": 49,
       "chunk_size": 4,
       "payload_size": 210,
       "topic": "sensor/data",
-      "timestamp": "2026-04-30T21:20:53.515335"
+      "timestamp": "2026-05-01T09:14:55.107588"
     }
   ],
-  "timestamp": "2026-04-30T21:20:56.518462"
+  "timestamp": "2026-05-01T09:14:57.110370"
 }
