@@ -1,0 +1,65 @@
+{
+  "best_model": "XGBoost",
+  "classes": [
+    "bruteforce",
+    "dos",
+    "flood",
+    "legitimate",
+    "malformed",
+    "slowite"
+  ],
+  "n_features": 33,
+  "feature_names": [
+    "tcp.flags",
+    "tcp.time_delta",
+    "tcp.len",
+    "mqtt.conack.flags",
+    "mqtt.conack.flags.reserved",
+    "mqtt.conack.flags.sp",
+    "mqtt.conack.val",
+    "mqtt.conflag.cleansess",
+    "mqtt.conflag.passwd",
+    "mqtt.conflag.qos",
+    "mqtt.conflag.reserved",
+    "mqtt.conflag.retain",
+    "mqtt.conflag.uname",
+    "mqtt.conflag.willflag",
+    "mqtt.conflags",
+    "mqtt.dupflag",
+    "mqtt.hdrflags",
+    "mqtt.kalive",
+    "mqtt.len",
+    "mqtt.msg",
+    "mqtt.msgid",
+    "mqtt.msgtype",
+    "mqtt.proto_len",
+    "mqtt.protoname",
+    "mqtt.qos",
+    "mqtt.retain",
+    "mqtt.sub.qos",
+    "mqtt.suback.qos",
+    "mqtt.ver",
+    "mqtt.willmsg",
+    "mqtt.willmsg_len",
+    "mqtt.willtopic",
+    "mqtt.willtopic_len"
+  ],
+  "results": {
+    "Random Forest": {
+      "accuracy": 0.883114,
+      "f1": 0.8850510689860972,
+      "precision": 0.8962559298253805,
+      "recall": 0.883114,
+      "time": 468.5362319946289,
+      "y_pred": null
+    },
+    "XGBoost": {
+      "accuracy": 0.9084593333333333,
+      "f1": 0.9061872945099153,
+      "precision": 0.9099959066946924,
+      "recall": 0.9084593333333333,
+      "time": 1315.9158537387848,
+      "y_pred": null
+    }
+  }
+}

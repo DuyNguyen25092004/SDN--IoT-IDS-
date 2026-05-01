@@ -130,8 +130,8 @@ class MQTTPublisher:
             protocol=mqtt.MQTTv311,
         )
         self.client.username_pw_set(
-            username=f"user_{host_id}",
-            password="iot_pass_2024"
+            username="admin",
+            password="admin"
         )
         self.client.on_connect    = self._on_connect
         self.client.on_disconnect = self._on_disconnect
@@ -208,8 +208,8 @@ class MQTTSubscriber:
             protocol=mqtt.MQTTv311,
         )
         self.client.username_pw_set(
-            username=f"sub_{host_id}",
-            password="iot_pass_2024"
+            username="admin",
+            password="admin"
         )
         self.client.on_connect    = self._on_connect
         self.client.on_message    = self._on_message

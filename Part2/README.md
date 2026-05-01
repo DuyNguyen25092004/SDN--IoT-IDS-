@@ -77,13 +77,8 @@ cd Part2
 #   IDS_VOTE_WINDOW : kích thước cửa sổ vote             (default 30)
 #   IDS_AGG_WINDOW  : giây tính aggregate features       (default 10)
 
-IDS_BLOCK_VOTES=10 IDS_BLOCK_CONF=0.30 IDS_VOTE_WINDOW=30 IDS_AGG_WINDOW=10 \
-RYU_URL=http://127.0.0.1:8080/ids/block \
-./venv/bin/python3 ids_api.py \
-    --model best_model.pkl \
-    --scaler scaler.pkl \
-    --encoder label_encoder.pkl \
-    2>&1 | tee /tmp/part2_demo/T2_ids.log
+IDS_BLOCK_VOTES=10 IDS_BLOCK_CONF=0.8 IDS_VOTE_WINDOW=20 IDS_AGG_WINDOW=10 RYU_URL=http://127.0.0.1:8080/ids/block ./venv/bin/python3 ids_api.py     --model best_model.pkl     --scaler scaler.pkl     --encoder label_encoder.pkl     2>&1 | tee /tmp/part2_demo/T2_ids.log
+
 ```
 
 ✅ Kiểm tra health (terminal rảnh):
@@ -125,25 +120,15 @@ sudo python3 topology.py
 
 ✅ Chờ prompt `mininet>` xuất hiện.
 
-### Cấu hình mosquitto broker lắng nghe 0.0.0.0
+### CHECK Cấu hình mosquitto broker lắng nghe 0.0.0.0
 
 ```bash
-# Terminal rảnh (một lần):
-cat >/tmp/mosq_open.conf <<'EOF'
-listener 1883 0.0.0.0
-allow_anonymous true
-EOF
+mininet> hbroker netstat -tlnp | grep 1883
 ```
-
-Tại prompt `mininet>`:
-```text
-mininet> hbroker pkill -f mosquitto; sleep 0.5
-mininet> hbroker mosquitto -c /tmp/mosq_open.conf -d
-mininet> hattacker ping -c1 10.0.0.10
+#### Output:
+```bash
+tcp        0      0 0.0.0.0:1883            0.0.0.0:*               LISTEN      12415/mosquitto     
 ```
-
-✅ Ping thành công → broker accessible từ hattacker.
-
 ---
 
 ## 6. T3 — Traffic capture
@@ -165,7 +150,7 @@ sudo ovs-vsctl -- set Bridge s1 mirrors=@m \
 sudo -E ./venv/bin/python3 traffic_capture.py \
     --iface s1 \
     --api http://127.0.0.1:5000 \
-    --csv /tmp/part2_demo/capture.csv \
+    --csv capture.csv \
     2>&1 | tee /tmp/part2_demo/T3_capture.log
 ```
 
@@ -195,91 +180,65 @@ IDS_DEBUG_N=20 ./venv/bin/python3 ids_api.py ...
 
 ## 7. Attacks (chạy từ T4 / Mininet CLI)
 
-> **Reset state giữa các attack** (terminal rảnh):
-> ```bash
-> curl -s -X POST http://127.0.0.1:8080/ids/unblock \
->      -H 'Content-Type: application/json' -d '{"ip":"10.0.0.99"}'
-> curl -s -X POST http://127.0.0.1:5000/reset \
->      -H 'Content-Type: application/json' -d '{"ip":"10.0.0.99","stats":true}'
-> ```
+**Sau moi lan chay attacker thi se bi block ip 10.0.0.99**
 
-> Thay `/home/thevien257/Desktop/term/SDN/Final\ Term/Project/SDN--IoT-IDS-/part3`
-> bằng đường dẫn thực tế đến thư mục `part3` trên máy bạn.
+Can chay lenh unblock:
+```
+sh curl -s -X POST http://127.0.0.1:8080/ids/unblock \-H "Content-Type: application/json" \-d '{"ip":"10.0.0.99"}'
+```
 
+**Reset cac vote**
+
+Can reset vote bang cach mo Terminal moi va chay lenh:
+```bash
+curl -X POST http://127.0.0.1:5000/reset
+```
 ---
 
 ### Attack 1 — MQTT Flood
 
 ```text
-mininet> hattacker python3 /path/to/part3/attack1_mqtt_flood.py --host 10.0.0.10 --iter 5000 --threads 10
+mininet> hattacker python3 attack1_mqtt_flood.py --host 10.0.0.10 --threads 5
 ```
 
 ✅ Mong đợi: `⚠ ATTACK BLOCKED [flood] conf≈1.00`
 
-> `attack1_mqtt_flood.py` dùng `--host` (không phải `--target`).
-> Kill nếu cần: `sudo pkill -9 -f attack1_mqtt_flood.py`
-
-**Tại sao model v5 detect tốt hơn:**
-`pkt_rate` tăng vọt (>200 pkt/s) + `pub_to_conn_ratio` rất cao → model thấy
-pattern flood rõ ràng hơn so với 8 features cũ.
-
+### Attack dos 
+```text
+mininet> hattacker python3 attack2_dos.py --host 10.0.0.10 --threads 5
+```
+✅ Mong đợi: `⚠ ATTACK BLOCKED [dos] conf≈0.99`
 ---
 
 ### Attack 3 — Brute Force CONNECT
 
 ```text
-mininet> hattacker python3 /path/to/part3/attack3_brute_force.py --host 10.0.0.10 --port 1883 --delay 0.5 --max 25 --force
+mininet> hattacker python3 attack3_brute_force.py --host 10.0.0.10 --delay 0.1
 ```
 
 ✅ Mong đợi: `⚠ ATTACK BLOCKED [brute_force] conf≈0.94`
 
-**Pattern nhận ra:** `pub_to_conn_ratio` ≈ 0 (toàn CONNECT, không PUBLISH)
-+ `time_delta_std` thấp (gửi đều đặn).
-
 ---
 
-### Attack 5 — Slow Drip Exfiltration
+### Attack 4 — Malformed Packets
 
 ```text
-mininet> hattacker python3 /path/to/part3/attack5_slow_drip.py --host 10.0.0.10 --port 1883 --topic sensor/data --rate 0.5 --chunk-size 8
-```
-
-✅ Mong đợi: `⚠ ATTACK BLOCKED [slow_drip] conf≈0.98`
-
-> Dùng `--chunk-size 8`. Chunk lớn hơn → ít publish → không đủ 10 votes trong 30s.
->
-> Attack này chạy ~90s. Kill trước khi chạy attack tiếp:
-> ```text
-> mininet> hattacker pkill -9 -f attack5_slow_drip
-> ```
-
----
-
-### Attack 6 — DoS Flood
-
-```text
-mininet> hattacker timeout 12 python3 /path/to/part3/attack_dos.py --target 10.0.0.10 --rate 200 --threads 8
-```
-
-✅ Mong đợi: `⚠ ATTACK BLOCKED [brute_force] conf≈0.98`
-
-> `attack_dos.py` mở nhiều TCP CONNECT ngắn mà không PUBLISH → refiner
-> gán nhãn `brute_force`. Block vẫn đúng, chỉ khác label.
-
----
-
-### Attack 7 — Malformed Packets
-
-```text
-mininet> hattacker python3 /path/to/part3/attack_malformed.py --target 10.0.0.10 --port 1883 --rate 50 --duration 15
+mininet> hattacker python3 attack4_malformed.py --target 10.0.0.10 --port 1883 --rate 50 --duration 15
 ```
 
 ✅ Mong đợi: `⚠ ATTACK BLOCKED [malformed] conf≈0.98`
 
-> Model v5 có `mqtt.dupflag` và `mqtt.len` nên nhận ra malformed packet
-> chính xác hơn so với v2.
+---
+### Attack 5 — Slow Drip Exfiltration
+
+```text
+mininet> hattacker python3 attack5_slow_drip.py --host 10.0.0.10 --rate 1.0
+```
+
+✅ Mong đợi: `⚠ ATTACK BLOCKED [slow_drip] conf≈0.98`
 
 ---
+
 
 ## 8. Kiểm tra aggregate features
 
