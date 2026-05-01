@@ -105,11 +105,72 @@ NORMAL_MQTT_MSGTYPES  = {"1","2","3","4","5","6","7","8","9","10","11","12","13"
 ENABLE_TRUSTED_PREFILTER = os.environ.get("IDS_TRUSTED_PREFILTER", "1") == "1"
 _trusted_prefilter_hits  = 0
 
-BLOCK_CONFIDENCE_THRESHOLD = float(os.environ.get("IDS_BLOCK_CONF",  "0.90"))
-BLOCK_VOTE_THRESHOLD       = int(  os.environ.get("IDS_BLOCK_VOTES", "20"))
-VOTE_WINDOW_SIZE           = int(  os.environ.get("IDS_VOTE_WINDOW", "30"))
+BLOCK_CONFIDENCE_THRESHOLD = float(os.environ.get("IDS_BLOCK_CONF",       "0.90"))
 
-ip_vote_window: dict = defaultdict(lambda: deque(maxlen=VOTE_WINDOW_SIZE))
+# ─── Threat Score system (replaces old count-based vote window) ───────────────
+# Mỗi IP có 1 điểm số tổng hợp (0..10). Score tăng khi detect attack,
+# tự giảm theo exponential decay khi không có activity.
+# Ưu điểm so với deque vote:
+#   1. Nhiều loại attack cùng lúc (flood+dos+malformed) đều cộng vào 1 pool
+#   2. Conf thấp vẫn được tính (có weight nhỏ hơn) thay vì bị bỏ qua hoàn toàn
+#   3. Không "reset cứng" — score giảm dần, tấn công liên tục giữ score cao
+#   4. Nghỉ rồi tấn công lại: score còn phần dư từ lần trước → phát hiện nhanh hơn
+
+THREAT_BLOCK_THRESHOLD = float(os.environ.get("IDS_THREAT_THRESHOLD", "5.0"))
+THREAT_SCORE_CAP       = float(os.environ.get("IDS_THREAT_CAP",       "10.0"))
+THREAT_DECAY_LAMBDA    = float(os.environ.get("IDS_THREAT_DECAY",     "0.15"))
+# λ=0.15 → score giảm ~78% sau 10 giây, ~97% sau 20 giây
+
+# Conf weight brackets — conf thấp vẫn cộng điểm nhưng nhẹ hơn
+CONF_WEIGHT_BRACKETS = [
+    (0.90, 1.0),   # conf >= 0.90 → +1.0 điểm
+    (0.80, 0.7),   # conf >= 0.80 → +0.7 điểm
+    (0.70, 0.4),   # conf >= 0.70 → +0.4 điểm
+    (0.00, 0.1),   # conf <  0.70 → +0.1 điểm (rất thấp nhưng không bỏ qua)
+]
+
+# ip_threat_score[ip] = float score hiện tại (sau decay)
+# ip_threat_last[ip]  = timestamp lần cập nhật cuối (để tính decay)
+ip_threat_score: dict = defaultdict(float)
+ip_threat_last:  dict = defaultdict(float)
+
+
+def _get_conf_weight(conf: float) -> float:
+    for threshold, weight in CONF_WEIGHT_BRACKETS:
+        if conf >= threshold:
+            return weight
+    return 0.1
+
+
+def update_threat_score(src_ip: str, conf: float, is_attack: bool) -> float:
+    """
+    Cập nhật threat score cho src_ip.
+    - Áp dụng exponential decay kể từ lần cập nhật trước.
+    - Nếu is_attack=True: cộng thêm weight tương ứng với conf.
+    - Trả về score hiện tại (sau decay + update).
+    """
+    now  = time.time()
+    last = ip_threat_last.get(src_ip, now)
+    dt   = now - last
+
+    # Exponential decay: score_new = score_old × e^(-λ × dt)
+    decayed = ip_threat_score[src_ip] * math.exp(-THREAT_DECAY_LAMBDA * dt)
+
+    if is_attack:
+        weight  = _get_conf_weight(conf)
+        decayed = min(decayed + weight, THREAT_SCORE_CAP)
+
+    ip_threat_score[src_ip] = decayed
+    ip_threat_last[src_ip]  = now
+    return decayed
+
+
+def get_threat_score(src_ip: str) -> float:
+    """Trả về score hiện tại (sau decay) mà không cộng thêm điểm mới."""
+    now  = time.time()
+    last = ip_threat_last.get(src_ip, now)
+    dt   = now - last
+    return ip_threat_score[src_ip] * math.exp(-THREAT_DECAY_LAMBDA * dt)
 
 # ─── Per-IP sliding window for aggregate features ────────────────────────────
 # Stores (timestamp, tcp.time_delta, mqtt.msgtype_int) per packet
@@ -403,7 +464,7 @@ def classify(raw_features: dict, src_ip: str = None) -> dict:
                 "model_label":  BENIGN_LABEL,
                 "confidence":   1.0,
                 "is_attack":    False,
-                "attack_votes": 0,
+                "threat_score": round(get_threat_score(src_ip), 3),
                 "src_ip":       src_ip,
                 "timestamp":    datetime.now().isoformat(),
                 "blocked":      False,
@@ -435,18 +496,21 @@ def classify(raw_features: dict, src_ip: str = None) -> dict:
     label     = refine_attack_label(model_label, src_ip, raw_features) if is_attack else model_label
     stats[label] += 1
 
+    # ── Threat score update ───────────────────────────────────────────────────
+    # Cộng điểm vào pool chung của IP (không phân biệt loại attack).
+    # Conf thấp vẫn được tính với weight nhỏ hơn.
+    # Score tự decay theo thời gian → không "đóng băng" giữa 2 lần test.
     if src_ip:
-        ip_vote_window[src_ip].append(1 if is_attack else 0)
-        attack_votes = sum(ip_vote_window[src_ip])
+        threat_score = update_threat_score(src_ip, conf, is_attack)
     else:
-        attack_votes = 0
+        threat_score = 0.0
 
     result = {
         "label":        label,
         "model_label":  model_label,
         "confidence":   round(conf, 4),
         "is_attack":    is_attack,
-        "attack_votes": attack_votes,
+        "threat_score": round(threat_score, 3),
         "src_ip":       src_ip or "unknown",
         "timestamp":    datetime.now().isoformat(),
         "blocked":      False,
@@ -454,22 +518,25 @@ def classify(raw_features: dict, src_ip: str = None) -> dict:
     }
 
     if is_attack and src_ip:
-        LOG.warning("ATTACK [%s] conf=%.2f votes=%d/%d src=%s",
-                    label, conf, attack_votes, VOTE_WINDOW_SIZE, src_ip)
+        weight = _get_conf_weight(conf)
+        LOG.warning(
+            "ATTACK [%-12s] conf=%.2f +%.1fpt score=%.2f/%.1f src=%s",
+            label, conf, weight, threat_score, THREAT_BLOCK_THRESHOLD, src_ip
+        )
         if src_ip in IP_WHITELIST:
             LOG.info("  -> Skip block: %s whitelisted", src_ip)
-        elif conf < BLOCK_CONFIDENCE_THRESHOLD:
-            LOG.info("  -> Skip block: conf %.2f < %.2f threshold",
-                     conf, BLOCK_CONFIDENCE_THRESHOLD)
-        elif attack_votes < BLOCK_VOTE_THRESHOLD:
-            LOG.info("  -> Skip block: %d/%d votes (need %d)",
-                     attack_votes, VOTE_WINDOW_SIZE, BLOCK_VOTE_THRESHOLD)
+        elif threat_score < THREAT_BLOCK_THRESHOLD:
+            LOG.info(
+                "  -> Skip block: score %.2f < %.1f (λ-decay active)",
+                threat_score, THREAT_BLOCK_THRESHOLD
+            )
         else:
-            LOG.warning("  -> BLOCKING src=%s", src_ip)
+            LOG.warning("  -> BLOCKING src=%s score=%.2f", src_ip, threat_score)
             block_ip_via_ryu(src_ip, label)
             result["blocked"] = True
     else:
-        LOG.debug("OK [%s] conf=%.2f src=%s", label, conf, src_ip)
+        LOG.debug("OK [%s] conf=%.2f score=%.2f src=%s",
+                  label, conf, threat_score, src_ip)
 
     return result
 
@@ -523,6 +590,7 @@ def predict_batch():
 @app.route("/stats", methods=["GET"])
 def get_stats():
     total = sum(stats.values())
+    now   = time.time()
     return jsonify({
         "total_packets":  total,
         "by_label":       dict(stats),
@@ -530,17 +598,22 @@ def get_stats():
         "uptime_s":       round(time.time() - start_time, 1),
         "trusted_prefilter_hits": _trusted_prefilter_hits,
         "config": {
-            "features":             FEATURE_NAMES,
-            "n_features":           len(FEATURE_NAMES),
-            "whitelist":            sorted(IP_WHITELIST),
-            "confidence_threshold": BLOCK_CONFIDENCE_THRESHOLD,
-            "block_vote_threshold": BLOCK_VOTE_THRESHOLD,
-            "vote_window_size":     VOTE_WINDOW_SIZE,
-            "agg_window_secs":      AGG_WINDOW_SECS,
+            "features":              FEATURE_NAMES,
+            "n_features":            len(FEATURE_NAMES),
+            "whitelist":             sorted(IP_WHITELIST),
+            "confidence_threshold":  BLOCK_CONFIDENCE_THRESHOLD,
+            "threat_block_threshold": THREAT_BLOCK_THRESHOLD,
+            "threat_score_cap":      THREAT_SCORE_CAP,
+            "threat_decay_lambda":   THREAT_DECAY_LAMBDA,
+            "agg_window_secs":       AGG_WINDOW_SECS,
         },
-        "ip_vote_windows": {
-            ip: {"recent_attacks": sum(w), "window_size": len(w)}
-            for ip, w in ip_vote_window.items()
+        "ip_threat_scores": {
+            ip: {
+                "score":        round(score * math.exp(-THREAT_DECAY_LAMBDA * (now - ip_threat_last.get(ip, now))), 3),
+                "last_seen_ago": round(now - ip_threat_last.get(ip, now), 1),
+                "above_threshold": (score * math.exp(-THREAT_DECAY_LAMBDA * (now - ip_threat_last.get(ip, now)))) >= THREAT_BLOCK_THRESHOLD,
+            }
+            for ip, score in ip_threat_score.items()
         },
         "ip_agg_windows": {
             ip: {"buffered_pkts": len(buf)}
@@ -578,19 +651,21 @@ def remove_whitelist():
 
 @app.route("/reset", methods=["POST"])
 def reset_state():
-    """Clear per-IP vote / behavior / aggregate windows.
+    """Clear per-IP threat score / behavior / aggregate windows.
     Body: {"ip": "10.0.0.99"} to scope to one IP, omit to clear all.
           {"stats": true}      to also zero the stats counters."""
     body = request.get_json(silent=True) or {}
     ip   = (body.get("ip") or "").strip()
     if ip:
-        ip_vote_window.pop(ip, None)
+        ip_threat_score.pop(ip, None)
+        ip_threat_last.pop(ip, None)
         ip_behavior.pop(ip, None)
         ip_agg_window.pop(ip, None)
         LOG.info("Reset state for %s", ip)
         scope = ip
     else:
-        ip_vote_window.clear()
+        ip_threat_score.clear()
+        ip_threat_last.clear()
         ip_behavior.clear()
         ip_agg_window.clear()
         LOG.info("Reset state for ALL ips")
@@ -614,6 +689,9 @@ if __name__ == "__main__":
     load_models(args.model, args.scaler, args.encoder)
 
     LOG.info("IDS API v5 starting on %s:%d", args.host, args.port)
-    LOG.info("Ryu block endpoint : %s", RYU_BLOCK_URL)
-    LOG.info("Aggregate window   : %ds", AGG_WINDOW_SECS)
+    LOG.info("Ryu block endpoint  : %s", RYU_BLOCK_URL)
+    LOG.info("Aggregate window    : %ds", AGG_WINDOW_SECS)
+    LOG.info("Threat score config : block=%.1f cap=%.1f decay_λ=%.3f",
+             THREAT_BLOCK_THRESHOLD, THREAT_SCORE_CAP, THREAT_DECAY_LAMBDA)
+    LOG.info("Conf weight brackets: %s", CONF_WEIGHT_BRACKETS)
     app.run(host=args.host, port=args.port, debug=False, threaded=True)
