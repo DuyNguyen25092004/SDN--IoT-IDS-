@@ -203,6 +203,7 @@ class MQTTSubscriber:
         self.msg_count   = 0
 
         self.client = mqtt.Client(
+            mqtt.CallbackAPIVersion.VERSION1, # Chèn thêm dòng này
             client_id=f"subscriber_{host_id}",
             clean_session=True,
             protocol=mqtt.MQTTv311,

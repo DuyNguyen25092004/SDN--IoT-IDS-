@@ -259,32 +259,35 @@ def refine_attack_label(model_label: str, src_ip: str, raw: dict) -> str:
     Rule priority (first match wins):
       1. slow_drip   — low pkt_rate + large PUBLISH payload
       2. flood       — SYN storm OR high-rate PUBLISH flood
-      3. dos_flood   — high pkt_rate + CONNECT+PUBLISH mix (attack_dos.py pattern)
-      4. malformed   — high CONNECT-only rate with no PUBLISH (raw TCP CONNECT spam)
-                       OR out-of-spec msgtype ratio
+      3. dos          — high pkt_rate + CONNECT+PUBLISH mix
+      4. malformed   — out-of-spec msgtype  OR  raw bytes (kalive≠60, tiny tcp.len)
       5. port_scan   — SYN + varying msgtypes
-      6. brute_force — sustained CONNECT-only at moderate rate
+      6. brute_force — valid MQTT CONNECT (kalive=60) at moderate rate
       7. fallback    — model_label unchanged
 
-    Signature notes per attack script:
-      attack_malformed.py : sends raw TCP with MQTT-like bytes → tshark sees
-                            msgtype=1 (CONNECT) only, pub_to_conn_ratio=0,
-                            pkt_rate moderate (rate/10 connections × 10 pkts)
-      attack_dos.py       : CONNECT + 50× PUBLISH per connection → pkt_rate
-                            very high, pub_to_conn_ratio ≈ 1 (not >>1 like flood)
-      attack1_flood.py    : pure PUBLISH storm → pub_to_conn_ratio >> 5
+    Key disambiguation — malformed vs brute_force:
+      attack_malformed.py : raw bytes → tshark thường KHÔNG parse được
+                            mqtt.kalive (field trống/0) vì bytes không đúng
+                            chuẩn MQTT; tcp.len rất nhỏ (2-14 bytes/segment)
+      attack3_brute_force.py: struct.pack chuẩn → mqtt.kalive=60 luôn luôn,
+                            tcp.len=14-35 bytes (well-formed var header)
     """
     if model_label == BENIGN_LABEL or not src_ip:
         return model_label
 
-    ts        = time.time()
-    msgtype   = int(to_num(raw.get("mqtt.msgtype")))
-    tcp_flags = int(to_num(raw.get("tcp.flags")))
-    tcp_len   = int(to_num(raw.get("tcp.len")))
-    mqtt_len  = int(to_num(raw.get("mqtt.len")))
+    ts         = time.time()
+    msgtype    = int(to_num(raw.get("mqtt.msgtype")))
+    tcp_flags  = int(to_num(raw.get("tcp.flags")))
+    tcp_len    = int(to_num(raw.get("tcp.len")))
+    mqtt_len   = int(to_num(raw.get("mqtt.len")))
     mqtt_msgid = to_num(raw.get("mqtt.msgid"))
 
-    ip_behavior[src_ip].append((ts, msgtype, tcp_flags, tcp_len, mqtt_msgid, mqtt_len))
+    # Đọc kalive dạng raw string (không to_num) để phân biệt "60" vs "" vs "0"
+    kalive_raw = str(raw.get("mqtt.kalive", "")).strip().strip('"')
+
+    ip_behavior[src_ip].append(
+        (ts, msgtype, tcp_flags, tcp_len, mqtt_msgid, mqtt_len, kalive_raw)
+    )
 
     # Prune stale entries
     cutoff = ts - BEHAVIOR_WINDOW_SECS
@@ -296,12 +299,13 @@ def refine_attack_label(model_label: str, src_ip: str, raw: dict) -> str:
     if len(recent) < 3:
         return model_label
 
-    msgtypes   = [e[1] for e in recent]
-    flags_list = [e[2] for e in recent]
-    tcp_lens   = [e[3] for e in recent]
-    mqtt_lens  = [e[5] for e in recent]
+    msgtypes    = [e[1] for e in recent]
+    flags_list  = [e[2] for e in recent]
+    tcp_lens    = [e[3] for e in recent]
+    mqtt_lens   = [e[5] for e in recent]
+    kalive_list = [e[6] for e in recent]   # raw strings
 
-    # ── Shared: compute pkt_rate from agg window ──────────────────────────────
+    # ── Shared metrics ────────────────────────────────────────────────────────
     agg_buf  = ip_agg_window.get(src_ip)
     pkt_rate = 0.0
     if agg_buf and len(agg_buf) >= 2:
@@ -312,21 +316,37 @@ def refine_attack_label(model_label: str, src_ip: str, raw: dict) -> str:
     pub_ratio    = msgtypes.count(3) / len(msgtypes)
     conn_ratio   = msgtypes.count(1) / len(msgtypes)
     avg_mqtt_len = sum(mqtt_lens) / len(mqtt_lens) if mqtt_lens else 0
+    avg_tcp_len  = sum(tcp_lens)  / len(tcp_lens)  if tcp_lens  else 0
     syn_ratio    = sum(1 for f in flags_list if (f & 0x02) and not (f & 0x10)) / len(flags_list)
 
-    # ── Rule 1: Slow drip ─────────────────────────────────────────────────────
-    # Low rate + mostly PUBLISH + large payload (base64 chunks)
-    if pkt_rate < 2.0 and pub_ratio >= 0.5 and avg_mqtt_len > 50:
-        return "slow_drip"
-
-    # ── Rule 2: Pure PUBLISH flood (attack1_mqtt_flood.py) ───────────────────
-    # Signature: very high pub_to_conn_ratio (>>3) + pub_ratio > 0.8
-    agg_p2c = (agg_buf[-1] if agg_buf else None)  # get pub_to_conn from last agg
-    # Recompute directly from behavior buffer for accuracy
     buf_pub  = msgtypes.count(3)
     buf_conn = msgtypes.count(1)
     buf_p2c  = buf_pub / max(buf_conn, 1)
 
+    # Kalive metrics:
+    #   kalive_present = packet có field mqtt.kalive (tshark parse được)
+    #   kalive_60_cnt  = số packet có kalive = "60" (brute_force signature)
+    kalive_present = [k for k in kalive_list if k not in ("", "0", "nan", "None")]
+    kalive_60_cnt  = sum(1 for k in kalive_list if k == "60")
+    kalive_60_ratio = kalive_60_cnt / max(len(recent), 1)
+
+    # DEBUG log — chỉ in khi cần phân biệt malformed/brute_force
+    _is_conn_heavy = conn_ratio > 0.5 and buf_p2c == 0
+    if _is_conn_heavy:
+        LOG.debug(
+            "[REFINE] src=%-15s conn_ratio=%.2f avg_tcp_len=%.1f "
+            "kalive_60_ratio=%.2f kalive_present=%d/%d pkt_rate=%.1f malformed_raw_ratio=%.2f",
+            src_ip, conn_ratio, avg_tcp_len,
+            kalive_60_ratio, len(kalive_present), len(recent),
+            pkt_rate,
+            sum(1 for m in msgtypes if m == 0 or m > 14) / len(msgtypes)
+        )
+
+    # ── Rule 1: Slow drip ─────────────────────────────────────────────────────
+    if pkt_rate < 2.0 and pub_ratio >= 0.5 and avg_mqtt_len > 50:
+        return "slow_drip"
+
+    # ── Rule 2: PUBLISH flood ─────────────────────────────────────────────────
     if pub_ratio > 0.8 and buf_p2c > 3.0 and pkt_rate > 20:
         return "flood"
 
@@ -334,33 +354,44 @@ def refine_attack_label(model_label: str, src_ip: str, raw: dict) -> str:
     if syn_ratio > 0.7:
         return "flood"
 
-    # ── Rule 4: DoS flood (attack_dos.py) ────────────────────────────────────
-    # Signature: very high pkt_rate + pub_to_conn_ratio close to 1 (CONNECT
-    # + fixed number of PUBLISH per connection) — distinguishable from flood
-    # (p2c >> 3) and from brute_force (p2c ≈ 0).
+    # ── Rule 4: DoS (attack_dos.py) ───────────────────────────────────────────
     if pkt_rate > 30 and 0.3 <= buf_p2c <= 3.0:
         return "dos"
 
-    # ── Rule 5: Malformed (attack_malformed.py) ───────────────────────────────
-    # Signature: raw TCP CONNECT packets only → pub_to_conn_ratio = 0,
-    # moderate pkt_rate (not the extreme of flood), small tcp.len.
-    # Also catches out-of-spec msgtype bytes.
+    # ── Rule 5: Malformed — MUST run before brute_force ───────────────────────
     malformed_ratio = sum(1 for m in msgtypes if m == 0 or m > 14) / len(msgtypes)
-    avg_tcp_len = sum(tcp_lens) / len(tcp_lens) if tcp_lens else 0
 
-    if malformed_ratio > 0.3 and pkt_rate >= 2.0:
+    # 5A: Explicit bad msgtype bytes (tshark parse được nhưng out-of-spec)
+    if malformed_ratio > 0.25:
+        LOG.info("[REFINE] malformed 5A src=%s bad_msgtype_ratio=%.2f", src_ip, malformed_ratio)
         return "malformed"
-    # Pure CONNECT spam with tiny packets = raw malformed CONNECT bytes
-    if conn_ratio > 0.8 and buf_p2c == 0 and avg_tcp_len < 30 and pkt_rate > 2.0:
-        return "malformed"
+
+    # 5B: CONNECT-only traffic, phân biệt bằng kalive và tcp.len
+    #   - malformed: tshark KHÔNG parse được kalive (field trống) hoặc kalive ngẫu nhiên ≠ 60
+    #                tcp.len rất nhỏ vì raw bytes chỉ 2-14 bytes
+    #   - brute_force: kalive luôn = 60 (hardcoded), tcp.len = 14-35 bytes
+    if conn_ratio > 0.6 and buf_p2c == 0 and pkt_rate > 1.5:
+        # Điều kiện malformed: kalive_60_ratio thấp VÀ tcp.len nhỏ
+        is_malformed = (kalive_60_ratio < 0.4) and (avg_tcp_len < 25)
+        # Hoặc: tshark hoàn toàn không đọc được kalive (packets quá ngắn/sai format)
+        is_malformed = is_malformed or (len(kalive_present) == 0 and avg_tcp_len < 20)
+
+        if is_malformed:
+            LOG.info(
+                "[REFINE] malformed 5B src=%s kalive_60_ratio=%.2f "
+                "avg_tcp_len=%.1f kalive_present=%d/%d",
+                src_ip, kalive_60_ratio, avg_tcp_len,
+                len(kalive_present), len(recent)
+            )
+            return "malformed"
 
     # ── Rule 6: Port scan ─────────────────────────────────────────────────────
     if syn_ratio > 0.5 and len(set(msgtypes)) > 3:
         return "port_scan"
 
     # ── Rule 7: Brute force ───────────────────────────────────────────────────
-    # Sustained CONNECT-only at moderate rate (not fast enough to be dos/flood,
-    # not small-packet malformed)
+    # Chỉ đến đây nếu đã qua Rule 5: tức là packets có vẻ hợp lệ (kalive=60
+    # hoặc tcp.len đủ lớn) → đây là CONNECT thật, không phải raw bytes rác
     if conn_ratio > 0.5:
         return "brute_force"
 
