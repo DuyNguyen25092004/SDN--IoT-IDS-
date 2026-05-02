@@ -165,7 +165,7 @@ sh bash -c 'curl -s http://127.0.0.1:8080/ids/rules'
 
 ---
 
-## 8. Kết quả thực nghiệm (đã chạy ngày 2026-05-02, profile `fast`)
+## 8. Kết quả thực nghiệm
 
 Đã chạy `combined_attack.py --host 10.0.0.10 --profile fast` từ `hattacker`
 trong môi trường 4-terminal đầy đủ (Ryu + IDS API + traffic_capture + Mininet).
