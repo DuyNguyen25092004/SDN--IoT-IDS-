@@ -32,6 +32,7 @@ from ryu.lib import hub
 
 import json
 import logging
+import os
 
 LOG = logging.getLogger("ryu.app.iot_ids")
 
@@ -297,9 +298,31 @@ class FlowEnforcerREST(ControllerBase):
                 return self._json({"error": "missing ip"}, 400)
 
             success = self.ids_ctrl.unblock_ip(src_ip)
+
+            # Notify IDS API to reset threat score + windows for this IP.
+            # This ensures the IDS starts evaluating the IP fresh (clean slate)
+            # after the operator has decided to unblock it.
+            ids_api_url = os.environ.get("IDS_API_URL", "http://127.0.0.1:5000")
+            try:
+                import urllib.request as _urllib
+                _data = json.dumps({"ip": src_ip}).encode()
+                _req  = _urllib.Request(
+                    ids_api_url + "/unblock",
+                    data=_data,
+                    headers={"Content-Type": "application/json"},
+                    method="POST"
+                )
+                with _urllib.urlopen(_req, timeout=2.0) as _resp:
+                    LOG.info("IDS state reset for %s: %s",
+                             src_ip, _resp.read().decode())
+            except Exception as e:
+                LOG.warning("Could not notify IDS API to reset state for %s: %s",
+                            src_ip, e)
+
             return self._json({
                 "status": "unblocked" if success else "not_blocked",
-                "ip": src_ip
+                "ip": src_ip,
+                "ids_state": "reset"
             })
         except Exception as e:
             return self._json({"error": str(e)}, 500)

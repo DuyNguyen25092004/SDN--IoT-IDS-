@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Attack 2 — DoS (Denial of Service)
@@ -17,24 +16,10 @@ import logging
 import random
 import string
 import threading
-import json
-import urllib.request
 import sys
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(threadName)s] %(message)s")
 log = logging.getLogger("DoS_Attack")
-
-def reset_ids_state(ids_ip="10.0.0.10", ids_port=5000, attacker_ip="10.0.0.99"):
-    """Tự động xóa trắng bộ đệm IDS trước khi chạy (Gọi vào máy Broker)"""
-    url = f"http://{ids_ip}:{ids_port}/reset"
-    try:
-        data = json.dumps({"ip": attacker_ip}).encode('utf-8')
-        req = urllib.request.Request(url, data=data, method="POST")
-        req.add_header('Content-Type', 'application/json')
-        with urllib.request.urlopen(req, timeout=2.0) as response:
-            log.info(f"♻️  Đã làm sạch bộ đệm IDS cho IP {attacker_ip} thành công!")
-    except Exception as e:
-        log.warning(f"⚠️  Không thể reset IDS API (Bỏ qua): {e}")
 
 def encode_str(s):
     b = s.encode("utf-8")
@@ -123,10 +108,6 @@ def main():
     log.info(f"  🧵 Threads : {args.threads} (Mở ngắt kết nối liên tục)")
     log.info(f"  🔐 Auth    : Đã gắn cứng (User: admin)")
     log.info("=" * 60)
-
-    # TỰ ĐỘNG LÀM SẠCH IDS TRƯỚC KHI TẤN CÔNG (Giả sử IDS đang chạy ở 10.0.0.10)
-    reset_ids_state(ids_ip="10.0.0.10", attacker_ip="10.0.0.99")
-    log.info("-" * 60)
 
     # Khởi chạy đa luồng để đẩy pkt_rate lên > 30
     threads = []

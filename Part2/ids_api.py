@@ -51,6 +51,9 @@ logging.basicConfig(
 )
 LOG = logging.getLogger("ids_api")
 
+# Tắt access log "POST /predict 200" của Flask/Werkzeug cho gọn terminal
+logging.getLogger("werkzeug").setLevel(logging.ERROR)
+
 app = Flask(__name__)
 
 # ─── Global model objects ─────────────────────────────────────────────────────
@@ -90,15 +93,16 @@ ATTACK_LABELS = MODEL_ATTACK_LABELS | REFINED_ATTACK_LABELS
 BENIGN_LABEL  = "legitimate"
 
 IP_WHITELIST = {
-    "10.0.0.1", "10.0.0.2", "10.0.0.3",
-    "10.0.0.5", "10.0.0.6",
-    "10.0.0.7", "10.0.0.8", "10.0.0.10",
+#    "10.0.0.1", "10.0.0.2", "10.0.0.3",
+#    "10.0.0.5", "10.0.0.6",
+#    "10.0.0.7", "10.0.0.8", 
+    "10.0.0.10",
     "127.0.0.1",
 }
 
 TRUSTED_SOURCES = {
-    "10.0.0.1", "10.0.0.2", "10.0.0.3",
-    "10.0.0.5", "10.0.0.6", "10.0.0.7", "10.0.0.8",
+#    "10.0.0.1", "10.0.0.2", "10.0.0.3",
+#    "10.0.0.5", "10.0.0.6", "10.0.0.7", "10.0.0.8",
     "10.0.0.10",  # broker
 }
 NORMAL_MQTT_MSGTYPES  = {"1","2","3","4","5","6","7","8","9","10","11","12","13","14"}
@@ -327,15 +331,48 @@ def preprocess_features(raw: dict, agg: dict) -> np.ndarray:
     global _dbg_pre_logged
     if _dbg_pre_logged < DEBUG_LOG_FIRST_N:
         _dbg_pre_logged += 1
-        LOG.info("[DBG-PRE #%d] raw  16feat = %s",
-                 _dbg_pre_logged, dict(zip(FEATURE_NAMES, row)))
-        LOG.info("[DBG-PRE #%d] scaled      = %s",
-                 _dbg_pre_logged,
-                 [round(float(v), 4) for v in Xs[0].tolist()])
         if all(v == 0.0 for v in row[:12]):
             LOG.warning("[DBG-PRE #%d]  ⚠ all-zero static features — pure TCP / no MQTT",
                         _dbg_pre_logged)
     return Xs
+
+
+def _log_feature_table(src_ip: str, raw: dict, agg: dict):
+    """
+    In ra bảng 16 feature đầy đủ của một gói tin theo dạng dễ đọc.
+    Gồm 12 static feature từ tshark + 4 aggregate feature do API tính.
+    """
+    STATIC_FEATS = [
+        "tcp.len", "tcp.time_delta", "tcp.flags",
+        "mqtt.msgtype", "mqtt.msgid", "mqtt.qos", "mqtt.dupflag",
+        "mqtt.len", "mqtt.kalive", "mqtt.conack.val",
+        "mqtt.conflag.passwd", "mqtt.retain",
+    ]
+    AGG_FEATS = ["time_delta_mean", "time_delta_std", "pkt_rate", "pub_to_conn_ratio"]
+
+    sep   = "─" * 52
+    lines = [
+        f"",
+        f"  ┌{sep}┐",
+        f"  │  📦 PACKET FEATURES  src={src_ip:<17}│",
+        f"  ├{'─'*26}┬{'─'*25}┤",
+        f"  │ {'Feature':<24} │ {'Value':>23} │",
+        f"  ├{'─'*26}┼{'─'*25}┤",
+    ]
+    for feat in STATIC_FEATS:
+        val = raw.get(feat, "")
+        val_str = str(val) if val not in ("", None) else "(empty)"
+        lines.append(f"  │ {feat:<24} │ {val_str:>23} │")
+
+    lines.append(f"  ├{'─'*26}┼{'─'*25}┤")
+    lines.append(f"  │ {'-- aggregate (API) --':<24} │ {'':>23} │")
+    lines.append(f"  ├{'─'*26}┼{'─'*25}┤")
+    for feat in AGG_FEATS:
+        val = agg.get(feat, 0.0)
+        lines.append(f"  │ {feat:<24} │ {round(val, 6):>23} │")
+
+    lines.append(f"  └{'─'*26}┴{'─'*25}┘")
+    LOG.info("\n".join(lines))
 
 
 # ─── Behavior-based attack subtype refinement ─────────────────────────────────
@@ -569,12 +606,15 @@ def classify(raw_features: dict, src_ip: str = None) -> dict:
         msgtype = str(int(to_num(raw_features.get("mqtt.msgtype", 0))))
         if msgtype in NORMAL_MQTT_MSGTYPES:
             _trusted_prefilter_hits += 1
-            if _trusted_prefilter_hits <= DEBUG_LOG_FIRST_N:
-                LOG.info("[DBG-TRUST] hit #%d src=%s msgtype=%s -> legitimate",
-                         _trusted_prefilter_hits, src_ip, msgtype)
             # Still update aggregate window so state stays consistent
-            compute_aggregate_features(src_ip, raw_features)
+            agg_pre = compute_aggregate_features(src_ip, raw_features)
             stats[BENIGN_LABEL] += 1
+            # ── Log feature table + result cho mỗi gói tin trusted ───────────
+            _log_feature_table(src_ip, raw_features, agg_pre)
+            LOG.info(
+                "  ✅ OK  src=%-15s  label=legitimate  (trusted prefilter #%d)",
+                src_ip, _trusted_prefilter_hits
+            )
             return {
                 "label":        BENIGN_LABEL,
                 "model_label":  BENIGN_LABEL,
@@ -598,12 +638,6 @@ def classify(raw_features: dict, src_ip: str = None) -> dict:
 
     global _dbg_cls_logged, _dbg_pred_counter
     _dbg_pred_counter[model_label] += 1
-    if _dbg_cls_logged < DEBUG_LOG_FIRST_N:
-        _dbg_cls_logged += 1
-        proba_d = {LABEL_ENCODER.inverse_transform([i])[0]: round(float(p), 3)
-                   for i, p in enumerate(proba)}
-        LOG.info("[DBG-CLS #%d] src=%-15s model_label=%-12s conf=%.3f probas=%s",
-                 _dbg_cls_logged, src_ip or "-", model_label, conf, proba_d)
     if sum(_dbg_pred_counter.values()) % 200 == 0:
         LOG.info("[DBG-DIST] cumulative model_label histogram: %s",
                  dict(_dbg_pred_counter.most_common()))
@@ -642,31 +676,40 @@ def classify(raw_features: dict, src_ip: str = None) -> dict:
         "agg_features": {k: round(v, 4) for k, v in agg.items()},
     }
 
+    # ── Log feature table cho mọi gói tin đi qua ML ─────────────────────────
+    _log_feature_table(src_ip or "unknown", raw_features, agg)
+
     if is_attack and src_ip:
         weight = _get_conf_weight(conf)
         LOG.warning(
-            "ATTACK [%-12s] conf=%.2f +%.1fpt score=%.2f/%.1f src=%s",
-            label, conf, weight, threat_score, THREAT_BLOCK_THRESHOLD, src_ip
+            "  ⚠️  ATTACK  src=%-15s  label=%-14s  conf=%.2f  "
+            "score=%.2f/%.1f  +%.1fpt",
+            src_ip, label, conf, threat_score, THREAT_BLOCK_THRESHOLD, weight
         )
         if src_ip in IP_WHITELIST:
-            LOG.info("  -> Skip block: %s whitelisted", src_ip)
+            LOG.info("       ↳ Skip block: %s is whitelisted", src_ip)
         elif threat_score < THREAT_BLOCK_THRESHOLD:
             LOG.info(
-                "  -> Skip block: score %.2f < %.1f (λ-decay active)",
+                "       ↳ Skip block: score %.2f < %.1f (λ-decay active)",
                 threat_score, THREAT_BLOCK_THRESHOLD
             )
         elif conf < BLOCK_CONFIDENCE_THRESHOLD:
             LOG.info(
-                "  -> Skip block: score %.2f >= %.1f but conf %.2f < %.2f (conf gate)",
+                "       ↳ Skip block: score %.2f >= %.1f but conf %.2f < %.2f (conf gate)",
                 threat_score, THREAT_BLOCK_THRESHOLD, conf, BLOCK_CONFIDENCE_THRESHOLD
             )
         else:
-            LOG.warning("  -> BLOCKING src=%s score=%.2f conf=%.2f", src_ip, threat_score, conf)
+            LOG.warning(
+                "  🚫 BLOCK   src=%-15s  label=%-14s  score=%.2f  conf=%.2f",
+                src_ip, label, threat_score, conf
+            )
             block_ip_via_ryu(src_ip, label)
             result["blocked"] = True
     else:
-        LOG.debug("OK [%s] conf=%.2f score=%.2f src=%s",
-                  label, conf, threat_score, src_ip)
+        LOG.info(
+            "  ✅ OK     src=%-15s  label=%-14s  conf=%.2f  score=%.2f",
+            src_ip or "unknown", label, conf, threat_score
+        )
 
     return result
 
@@ -777,6 +820,30 @@ def remove_whitelist():
     IP_WHITELIST.discard(ip)
     LOG.info("Whitelist remove: %s", ip)
     return jsonify({"status": "removed", "ip": ip, "whitelist": sorted(IP_WHITELIST)})
+
+
+@app.route("/unblock", methods=["POST"])
+def unblock_notify():
+    """
+    Được gọi bởi Ryu controller ngay sau khi xóa DROP rule cho 1 IP.
+    Tự động reset toàn bộ threat score + behavior window + agg window cho IP đó,
+    để IDS bắt đầu đánh giá lại từ đầu (clean slate).
+
+    Body: {"ip": "10.0.0.99"}
+    """
+    body = request.get_json(silent=True) or {}
+    ip   = (body.get("ip") or "").strip()
+    if not ip:
+        return jsonify({"error": "missing 'ip'"}), 400
+
+    ip_threat_score.pop(ip, None)
+    ip_threat_last.pop(ip, None)
+    ip_behavior.pop(ip, None)
+    ip_agg_window.pop(ip, None)
+    ip_last_seen.pop(ip, None)
+
+    LOG.info("🔓 UNBLOCK NOTIFY: Reset IDS state for %s (clean slate)", ip)
+    return jsonify({"status": "reset_on_unblock", "ip": ip})
 
 
 @app.route("/reset", methods=["POST"])
