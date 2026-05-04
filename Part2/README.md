@@ -344,3 +344,52 @@ sudo ovs-vsctl clear Bridge s1 mirrors
 | h1–h8      | 10.0.0.1–8  | sensors     |
 | hbroker    | 10.0.0.10   | MQTT broker |
 | hattacker  | 10.0.0.99   | attacker    |
+
+---
+
+## 13. Benchmark — Latency & Throughput (IDS API + Ryu)
+
+Đo độ trễ và throughput end-to-end của hệ thống đang chạy bằng `benchmark_sdn.py` —
+gửi HTTP thật tới `ids_api.py` (port 5000) và `ryu_controller.py` REST (port 8080).
+**Không cần cbench**, không cần fake switch.
+
+### 13.1 Yêu cầu
+
+- T1 (Ryu) và T2 (IDS API) đang chạy theo mục **3** và **4** ở trên.
+- `requests` đã có sẵn trong `Part2/venv/`.
+
+### 13.2 Chạy benchmark
+
+```bash
+cd Part2
+./venv/bin/python3 benchmark_sdn.py --mode full --n 200 --workers 4 \
+    --csv benchmark_results.csv
+```
+
+**Flags:**
+
+| Flag         | Ý nghĩa                                  | Mặc định               |
+|--------------|------------------------------------------|------------------------|
+| `--mode`     | `full` / `ids` / `ryu` / `e2e`           | `full`                 |
+| `--n`        | Số request mỗi latency test              | `100`                  |
+| `--workers`  | Số luồng cho throughput test             | `4`                    |
+| `--ids-url`  | Base URL của IDS API                     | `http://127.0.0.1:5000`|
+| `--ryu-url`  | Base URL của Ryu REST                    | `http://127.0.0.1:8080`|
+| `--csv`      | Xuất kết quả ra CSV                      | (không xuất)           |
+
+### 13.3 Kết quả tham chiếu (chạy thật, localhost)
+
+| Component                | mean (ms) | p95 (ms) |
+|--------------------------|-----------|----------|
+| IDS `/predict` (normal)  | 5,21      | 6,30     |
+| IDS `/predict` (attack)  | 7,69      | 9,48     |
+| IDS `/health`            | 1,14      | 1,61     |
+| Ryu `/ids/rules`         | 0,86      | 1,26     |
+| Ryu `/ids/block`         | 1,11      | 1,61     |
+| Ryu `/ids/unblock`       | 2,29      | 2,90     |
+| **E2E detect→block**     | **5,57**  | **6,05** |
+
+- **IDS throughput** đo thực: **188 req/s** (4 luồng, 0 lỗi / 942 req)
+- **Ryu REST trần** (1000/mean): ~900–1.160 req/s
+- **Overhead SDN** ≈ 0,4 ms (E2E mean − IDS mean) — không đáng kể;
+  bottleneck là XGBoost inference (~5 ms), không phải Ryu/OpenFlow.
