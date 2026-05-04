@@ -91,13 +91,13 @@ BENIGN_LABEL  = "legitimate"
 
 IP_WHITELIST = {
     "10.0.0.1", "10.0.0.2", "10.0.0.3",
-    "10.0.0.4", "10.0.0.5", "10.0.0.6",
+    "10.0.0.5", "10.0.0.6",
     "10.0.0.7", "10.0.0.8", "10.0.0.10",
     "127.0.0.1",
 }
 
 TRUSTED_SOURCES = {
-    "10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4",
+    "10.0.0.1", "10.0.0.2", "10.0.0.3",
     "10.0.0.5", "10.0.0.6", "10.0.0.7", "10.0.0.8",
     "10.0.0.10",  # broker
 }
@@ -175,13 +175,23 @@ def get_threat_score(src_ip: str) -> float:
 # ─── Per-IP sliding window for aggregate features ────────────────────────────
 # Stores (timestamp, tcp.time_delta, mqtt.msgtype_int) per packet
 AGG_WINDOW_SECS   = int(os.environ.get("IDS_AGG_WINDOW", "10"))  # seconds
-AGG_MAX_HISTORY   = 500
+# Flood gửi hàng nghìn TCP segment/s → maxlen phải lớn hơn burst rate × window
+# Nếu maxlen quá nhỏ, deque bị tràn → mất gói cũ → timestamp[0] dịch gần timestamp[-1]
+# → pkt_rate bị undercount → miss attack đầu đợt
+# Flood ~2000 seg/s × 10s = 20000; dùng 25000 để có buffer
+AGG_MAX_HISTORY   = 25000
 ip_agg_window: dict = defaultdict(lambda: deque(maxlen=AGG_MAX_HISTORY))
 
 # ─── Behavior-tracking window for subtype refinement ─────────────────────────
 BEHAVIOR_WINDOW_SECS = 10.0
-BEHAVIOR_MAX_HISTORY = 400
+BEHAVIOR_MAX_HISTORY = 25000
 ip_behavior: dict = defaultdict(lambda: deque(maxlen=BEHAVIOR_MAX_HISTORY))
+
+# ─── Post-attack idle reset ───────────────────────────────────────────────────
+# Nếu IP im lặng >= IDLE_RESET_SECS giây thì xóa sạch window trước khi xử lý
+# packet mới. Tránh "ghost features" từ flood cũ làm nhiễu traffic hợp lệ sau đó.
+IDLE_RESET_SECS = float(os.environ.get("IDS_IDLE_RESET", "15.0"))
+ip_last_seen: dict = defaultdict(float)  # ip → timestamp lần cuối thấy packet
 
 RYU_BLOCK_URL = os.environ.get("RYU_URL", "http://127.0.0.1:8080/ids/block")
 
@@ -243,8 +253,24 @@ def compute_aggregate_features(src_ip: str, raw: dict) -> dict:
     td       = to_num(raw.get("tcp.time_delta", 0))
     msgtype  = int(to_num(raw.get("mqtt.msgtype", 0)))
 
+    # ── Idle reset: nếu IP im lặng quá lâu, xóa window cũ ───────────────────
+    # Tránh ghost features từ đợt flood/attack trước ảnh hưởng traffic mới.
+    last_seen = ip_last_seen[src_ip]
+    if last_seen > 0 and (now - last_seen) >= IDLE_RESET_SECS:
+        ip_agg_window[src_ip].clear()
+        ip_behavior[src_ip].clear()
+        LOG.info(
+            "[AGG-RESET] src=%s idle=%.1fs >= %.1fs → window cleared",
+            src_ip, now - last_seen, IDLE_RESET_SECS
+        )
+    ip_last_seen[src_ip] = now
+
+    # ── tcp.time_delta sanity: giá trị > AGG_WINDOW_SECS là gap giữa 2 burst
+    # không nên đưa vào mean/std vì sẽ kéo lệch → cap tại AGG_WINDOW_SECS
+    td_capped = min(td, float(AGG_WINDOW_SECS))
+
     # Append current packet to this IP's window
-    ip_agg_window[src_ip].append((now, td, msgtype))
+    ip_agg_window[src_ip].append((now, td_capped, msgtype))
 
     # Prune entries older than AGG_WINDOW_SECS
     cutoff = now - AGG_WINDOW_SECS
@@ -258,7 +284,7 @@ def compute_aggregate_features(src_ip: str, raw: dict) -> dict:
 
     n = len(time_deltas)
 
-    # time_delta_mean / time_delta_std (from tcp.time_delta values in window)
+    # time_delta_mean / time_delta_std
     if n >= 2:
         td_mean = statistics.mean(time_deltas)
         td_std  = statistics.stdev(time_deltas) if n >= 3 else 0.0
@@ -318,22 +344,24 @@ def refine_attack_label(model_label: str, src_ip: str, raw: dict) -> str:
     """Return refined attack subtype based on src_ip's recent behavior.
 
     Rule priority (first match wins):
-      1. slow_drip   — low pkt_rate + large PUBLISH payload
-      2. flood       — SYN storm OR high-rate PUBLISH flood
-      3. dos_flood   — high pkt_rate + CONNECT+PUBLISH mix (attack_dos.py pattern)
-      4. malformed   — high CONNECT-only rate with no PUBLISH (raw TCP CONNECT spam)
-                       OR out-of-spec msgtype ratio
-      5. port_scan   — SYN + varying msgtypes
-      6. brute_force — sustained CONNECT-only at moderate rate
-      7. fallback    — model_label unchanged
+      1. flood (raw TCP burst) — tcp.len >> 1000 + very high pkt_rate
+         attack1_mqtt_flood.py gửi 32760-byte TCP chunk → tshark thấy tcp.len rất lớn
+      2. flood (PUBLISH ratio) — pub_ratio cao + pkt_rate cao
+      3. SYN flood            — SYN-only packets
+      4. dos                  — high pkt_rate + CONNECT+PUBLISH mix
+      5. slow_drip            — low rate + large payload (base64 exfil)
+      6. malformed            — CONNECT-only + out-of-spec msgtype
+      7. port_scan            — SYN + varied msgtypes
+      8. brute_force          — sustained CONNECT-only moderate rate
+      9. fallback             — model_label unchanged
 
     Signature notes per attack script:
-      attack_malformed.py : sends raw TCP with MQTT-like bytes → tshark sees
-                            msgtype=1 (CONNECT) only, pub_to_conn_ratio=0,
-                            pkt_rate moderate (rate/10 connections × 10 pkts)
-      attack_dos.py       : CONNECT + 50× PUBLISH per connection → pkt_rate
-                            very high, pub_to_conn_ratio ≈ 1 (not >>1 like flood)
-      attack1_flood.py    : pure PUBLISH storm → pub_to_conn_ratio >> 5
+      attack1_mqtt_flood.py : gửi raw 32760-byte TCP segment = 1820× PUBLISH ghép lại
+                              → tshark thấy tcp.len ≈ 32760, mqtt.len rất lớn,
+                                pkt_rate rất cao (burst), pub_to_conn >> 1000
+      attack_dos.py         : CONNECT + 50× PUBLISH per connection, pkt_rate cao,
+                              pub_to_conn_ratio moderate (không >> như flood)
+      attack_malformed.py   : raw TCP CONNECT bytes only, msgtype=1, tcp.len nhỏ
     """
     if model_label == BENIGN_LABEL or not src_ip:
         return model_label
@@ -362,7 +390,7 @@ def refine_attack_label(model_label: str, src_ip: str, raw: dict) -> str:
     tcp_lens   = [e[3] for e in recent]
     mqtt_lens  = [e[5] for e in recent]
 
-    # ── Shared: compute pkt_rate from agg window ──────────────────────────────
+    # ── Shared: pkt_rate từ agg window ───────────────────────────────────────
     agg_buf  = ip_agg_window.get(src_ip)
     pkt_rate = 0.0
     if agg_buf and len(agg_buf) >= 2:
@@ -373,21 +401,22 @@ def refine_attack_label(model_label: str, src_ip: str, raw: dict) -> str:
     pub_ratio    = msgtypes.count(3) / len(msgtypes)
     conn_ratio   = msgtypes.count(1) / len(msgtypes)
     avg_mqtt_len = sum(mqtt_lens) / len(mqtt_lens) if mqtt_lens else 0
+    avg_tcp_len  = sum(tcp_lens)  / len(tcp_lens)  if tcp_lens  else 0
     syn_ratio    = sum(1 for f in flags_list if (f & 0x02) and not (f & 0x10)) / len(flags_list)
 
-    # ── Rule 1: Slow drip ─────────────────────────────────────────────────────
-    # Low rate + mostly PUBLISH + large payload (base64 chunks)
-    if pkt_rate < 2.0 and pub_ratio >= 0.5 and avg_mqtt_len > 50:
-        return "slow_drip"
-
-    # ── Rule 2: Pure PUBLISH flood (attack1_mqtt_flood.py) ───────────────────
-    # Signature: very high pub_to_conn_ratio (>>3) + pub_ratio > 0.8
-    agg_p2c = (agg_buf[-1] if agg_buf else None)  # get pub_to_conn from last agg
-    # Recompute directly from behavior buffer for accuracy
     buf_pub  = msgtypes.count(3)
     buf_conn = msgtypes.count(1)
     buf_p2c  = buf_pub / max(buf_conn, 1)
 
+    # ── Rule 1: Raw TCP burst flood (attack1_mqtt_flood.py signature) ─────────
+    # Script gửi 32760-byte chunk = 1820 PUBLISH ghép lại trong 1 sendall().
+    # tshark thấy tcp.len rất lớn (> 1000) hoặc mqtt.len rất lớn.
+    # Packet hiện tại hoặc trung bình buffer đều lớn bất thường.
+    is_large_tcp = tcp_len > 1000 or avg_tcp_len > 500
+    if is_large_tcp and pkt_rate > 5:
+        return "flood"
+
+    # ── Rule 2: High-rate PUBLISH flood (pub_ratio cao, rate cao) ────────────
     if pub_ratio > 0.8 and buf_p2c > 3.0 and pkt_rate > 20:
         return "flood"
 
@@ -395,37 +424,124 @@ def refine_attack_label(model_label: str, src_ip: str, raw: dict) -> str:
     if syn_ratio > 0.7:
         return "flood"
 
-    # ── Rule 4: DoS flood (attack_dos.py) ────────────────────────────────────
-    # Signature: very high pkt_rate + pub_to_conn_ratio close to 1 (CONNECT
-    # + fixed number of PUBLISH per connection) — distinguishable from flood
-    # (p2c >> 3) and from brute_force (p2c ≈ 0).
+    # ── Rule 4: DoS (attack_dos.py) ──────────────────────────────────────────
+    # CONNECT + nhiều PUBLISH per session, pkt_rate cao vừa, p2c moderate
     if pkt_rate > 30 and 0.3 <= buf_p2c <= 3.0:
         return "dos"
 
-    # ── Rule 5: Malformed (attack_malformed.py) ───────────────────────────────
-    # Signature: raw TCP CONNECT packets only → pub_to_conn_ratio = 0,
-    # moderate pkt_rate (not the extreme of flood), small tcp.len.
-    # Also catches out-of-spec msgtype bytes.
-    malformed_ratio = sum(1 for m in msgtypes if m == 0 or m > 14) / len(msgtypes)
-    avg_tcp_len = sum(tcp_lens) / len(tcp_lens) if tcp_lens else 0
+    # ── Rule 5: Slow drip ─────────────────────────────────────────────────────
+    # Low rate + PUBLISH + payload LỚN BẤT THƯỜNG (base64 exfil > 100 bytes)
+    # KHÔNG phải legitimate sensor JSON (thường < 80 bytes, td > 1s)
+    if pkt_rate < 1.5 and pub_ratio >= 0.5 and avg_mqtt_len > 100:
+        return "slow_drip"
 
+    # ── Rule 6: Malformed ─────────────────────────────────────────────────────
+    malformed_ratio = sum(1 for m in msgtypes if m == 0 or m > 14) / len(msgtypes)
     if malformed_ratio > 0.3 and pkt_rate >= 2.0:
         return "malformed"
-    # Pure CONNECT spam with tiny packets = raw malformed CONNECT bytes
     if conn_ratio > 0.8 and buf_p2c == 0 and avg_tcp_len < 30 and pkt_rate > 2.0:
         return "malformed"
 
-    # ── Rule 6: Port scan ─────────────────────────────────────────────────────
+    # ── Rule 7: Port scan ─────────────────────────────────────────────────────
     if syn_ratio > 0.5 and len(set(msgtypes)) > 3:
         return "port_scan"
 
-    # ── Rule 7: Brute force ───────────────────────────────────────────────────
-    # Sustained CONNECT-only at moderate rate (not fast enough to be dos/flood,
-    # not small-packet malformed)
+    # ── Rule 8: Brute force ───────────────────────────────────────────────────
     if conn_ratio > 0.5:
         return "brute_force"
 
     return model_label
+
+
+# ─── Behavioral sanity check (false-positive suppressor) ─────────────────────
+#
+# Model XGBoost được train trên MQTTset có giới hạn: một số feature combination
+# của legitimate IoT traffic (pub_to_conn_ratio tăng dần, mqtt.msgid tăng, QoS=1)
+# overlap với DoS/slowite pattern trong training data.
+#
+# Hàm này áp dụng các ràng buộc vật lý / thống kê mà attack thực sự PHẢI thỏa,
+# nhưng legitimate traffic KHÔNG thể thỏa đồng thời → override model nếu vi phạm.
+#
+# Chỉ can thiệp vào 2 label dễ bị false positive nhất: dos, slowite.
+# Các label khác (flood, bruteforce, malformed) giữ nguyên model decision.
+
+# Ngưỡng vật lý: pkt_rate tối thiểu để tấn công có tác động thực sự
+DOS_MIN_PKT_RATE    = 5.0   # pkts/s — DoS cần ít nhất 5 pkt/s để gây tải
+SLOWITE_MAX_PKT_RATE = 2.0  # pkts/s — slowite/slow_drip là LOW-rate by definition
+                             # nhưng phải kết hợp payload lớn bất thường
+SLOWITE_MIN_MQTT_LEN = 100  # bytes — legitimate sensor JSON thường < 80 bytes
+
+# time_delta giữa các packet của legitimate IoT publisher ≈ PUBLISH_RATE (2-4s)
+# DoS/flood thực sự có time_delta << 1s (thường < 0.1s)
+LEGITIMATE_MIN_TIME_DELTA_MEAN = 1.0  # giây — dưới ngưỡng này mới có thể là attack
+
+def behavioral_sanity_check(model_label: str, agg: dict, raw: dict) -> str:
+    """
+    Kiểm tra xem model_label có phù hợp với hành vi thực tế quan sát không.
+    Trả về model_label gốc nếu hợp lý, hoặc BENIGN_LABEL nếu phát hiện FP rõ ràng.
+
+    Logic:
+      - dos/flood    cần pkt_rate CAO và time_delta_mean THẤP
+      - slowite      cần pkt_rate THẤP nhưng payload lớn bất thường
+      - bruteforce   cần pkt_rate vừa và CONNECT-only (pub_to_conn thấp)
+      - malformed    cần msgtype bất thường hoặc tcp.len rất nhỏ
+    """
+    if model_label not in MODEL_ATTACK_LABELS:
+        return model_label  # không can thiệp vào legitimate
+
+    pkt_rate        = agg.get("pkt_rate", 0.0)
+    td_mean         = agg.get("time_delta_mean", 0.0)
+    pub_to_conn     = agg.get("pub_to_conn_ratio", 0.0)
+    mqtt_len        = to_num(raw.get("mqtt.len", 0))
+    mqtt_qos        = to_num(raw.get("mqtt.qos", 0))
+    mqtt_kalive     = to_num(raw.get("mqtt.kalive", 0))
+    tcp_time_delta  = to_num(raw.get("tcp.time_delta", 0))
+
+    # ── Kiểm tra dos / flood ─────────────────────────────────────────────────
+    # Attack thực: pkt_rate cao VÀ time_delta nhỏ
+    # False positive: pkt_rate thấp (< DOS_MIN_PKT_RATE) VÀ time_delta lớn (> 1s)
+    if model_label in ("dos", "flood"):
+        legitimate_rate   = pkt_rate < DOS_MIN_PKT_RATE
+        legitimate_timing = td_mean > LEGITIMATE_MIN_TIME_DELTA_MEAN
+        legitimate_delta  = tcp_time_delta > LEGITIMATE_MIN_TIME_DELTA_MEAN
+
+        if legitimate_rate and legitimate_timing and legitimate_delta:
+            LOG.info(
+                "[SANITY] Override %s→legitimate: pkt_rate=%.3f<%.1f "
+                "td_mean=%.3f>%.1fs tcp_td=%.3f (legitimate IoT cadence)",
+                model_label, pkt_rate, DOS_MIN_PKT_RATE,
+                td_mean, LEGITIMATE_MIN_TIME_DELTA_MEAN, tcp_time_delta
+            )
+            return BENIGN_LABEL
+
+    # ── Kiểm tra slowite ─────────────────────────────────────────────────────
+    # Slowite thực: pkt_rate thấp + payload LỚN BẤT THƯỜNG (base64 exfil)
+    # False positive: pkt_rate thấp + payload bình thường (sensor JSON < 80 bytes)
+    if model_label == "slowite":
+        normal_payload = mqtt_len < SLOWITE_MIN_MQTT_LEN
+        normal_timing  = tcp_time_delta > LEGITIMATE_MIN_TIME_DELTA_MEAN
+
+        if normal_payload and normal_timing:
+            LOG.info(
+                "[SANITY] Override slowite→legitimate: mqtt_len=%.0f<%.0f "
+                "tcp_td=%.3f (normal sensor payload)",
+                mqtt_len, SLOWITE_MIN_MQTT_LEN, tcp_time_delta
+            )
+            return BENIGN_LABEL
+
+    # ── Kiểm tra bruteforce ──────────────────────────────────────────────────
+    # Bruteforce thực: CONNECT liên tục, pub_to_conn gần 0, không có QoS=1 data
+    # Nếu có pub_to_conn > 2 và QoS=1 → đây là publisher bình thường
+    if model_label == "bruteforce":
+        if pub_to_conn > 2.0 and mqtt_qos >= 1 and pkt_rate < DOS_MIN_PKT_RATE:
+            LOG.info(
+                "[SANITY] Override bruteforce→legitimate: pub_to_conn=%.1f "
+                "qos=%.0f pkt_rate=%.3f (normal publisher)",
+                pub_to_conn, mqtt_qos, pkt_rate
+            )
+            return BENIGN_LABEL
+
+    return model_label  # giữ nguyên nếu không có vi phạm
 
 
 # ─── Block via Ryu ────────────────────────────────────────────────────────────
@@ -492,6 +608,15 @@ def classify(raw_features: dict, src_ip: str = None) -> dict:
         LOG.info("[DBG-DIST] cumulative model_label histogram: %s",
                  dict(_dbg_pred_counter.most_common()))
 
+    # ── Behavioral sanity check: override obvious false positives ────────────
+    # Chạy TRƯỚC refine_attack_label để tránh refine một FP thành subtype khác.
+    # Nếu model predict attack nhưng behavior không khớp signature thực → legitimate.
+    sanitized_label = behavioral_sanity_check(model_label, agg, raw_features)
+    if sanitized_label != model_label:
+        # Model bị FP — override toàn bộ pipeline
+        model_label = sanitized_label
+        conf        = 1.0   # certainty ta override
+
     is_attack = model_label in MODEL_ATTACK_LABELS
     label     = refine_attack_label(model_label, src_ip, raw_features) if is_attack else model_label
     stats[label] += 1
@@ -530,8 +655,13 @@ def classify(raw_features: dict, src_ip: str = None) -> dict:
                 "  -> Skip block: score %.2f < %.1f (λ-decay active)",
                 threat_score, THREAT_BLOCK_THRESHOLD
             )
+        elif conf < BLOCK_CONFIDENCE_THRESHOLD:
+            LOG.info(
+                "  -> Skip block: score %.2f >= %.1f but conf %.2f < %.2f (conf gate)",
+                threat_score, THREAT_BLOCK_THRESHOLD, conf, BLOCK_CONFIDENCE_THRESHOLD
+            )
         else:
-            LOG.warning("  -> BLOCKING src=%s score=%.2f", src_ip, threat_score)
+            LOG.warning("  -> BLOCKING src=%s score=%.2f conf=%.2f", src_ip, threat_score, conf)
             block_ip_via_ryu(src_ip, label)
             result["blocked"] = True
     else:
@@ -661,6 +791,7 @@ def reset_state():
         ip_threat_last.pop(ip, None)
         ip_behavior.pop(ip, None)
         ip_agg_window.pop(ip, None)
+        ip_last_seen.pop(ip, None)
         LOG.info("Reset state for %s", ip)
         scope = ip
     else:
@@ -668,6 +799,7 @@ def reset_state():
         ip_threat_last.clear()
         ip_behavior.clear()
         ip_agg_window.clear()
+        ip_last_seen.clear()
         LOG.info("Reset state for ALL ips")
         scope = "all"
     if body.get("stats"):

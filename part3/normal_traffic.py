@@ -52,7 +52,7 @@ BROKER_IP    = "10.0.0.10"
 BROKER_PORT  = 1883
 KEEP_ALIVE   = 60          # seconds — standard IoT value
 QOS_LEVEL    = 1           # QoS 1 — at least once (most common in IoT)
-PUBLISH_RATE = 2.0         # seconds between publishes per device
+PUBLISH_RATE = 3.0         # seconds between publishes per device
 
 # Publisher host → topic mapping (mirrors your diagram: h1-h6 are publishers)
 PUBLISHER_CONFIG = {
